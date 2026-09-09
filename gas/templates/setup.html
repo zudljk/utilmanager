@@ -1,0 +1,29 @@
+{% extends 'base.html' %}
+{% block content %}
+<h1>Gasverbrauch einrichten</h1>
+<p class="intro">Übernimm deine bisherige Tabelle oder beginne mit einem bekannten Tankbestand.</p>
+<div class="two-columns">
+  <section class="panel">
+    <h2>Vorhandene ODS-Datei importieren</h2>
+    <p>Importiert das erste Blatt mit Kopfzeile in Zeile 4: Anfangsbestand, Verbrauch, Lieferungen und historische Bewertungspreise.</p>
+    <form method="post" action="{{ url_for('import_file') }}" enctype="multipart/form-data">
+      <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+      <label>Gasverbrauch.ods<input type="file" name="file" accept=".ods" required></label>
+      <button type="submit">Prüfen und importieren</button>
+    </form>
+    <p class="hint">Nur bei der Ersteinrichtung. Die Bestandsrechnung wird vor dem Import gegen die Datei geprüft.</p>
+  </section>
+  <section class="panel">
+    <h2>Ohne Import starten</h2>
+    <form method="post" action="{{ url_for('setup') }}">
+      <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+      <label>Tankvolumen in Litern<input name="capacity_liters" value="6520" inputmode="decimal" required></label>
+      <label>Umrechnung in kWh pro Liter<input name="factor" value="6,57" inputmode="decimal" required></label>
+      <label>Anfangsbestand in Litern<input name="opening_liters" inputmode="decimal" required></label>
+      <label>Erster Verbrauchsmonat<input type="month" name="start_month" max="{{ current_month }}" required></label>
+      <p class="hint">Der Anfangsbestand gilt unmittelbar vor diesem Monat. Zahlen ohne Tausendertrennzeichen eingeben.</p>
+      <button type="submit">Tank einrichten</button>
+    </form>
+  </section>
+</div>
+{% endblock %}

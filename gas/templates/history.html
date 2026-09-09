@@ -1,0 +1,8 @@
+{% extends 'base.html' %}
+{% block content %}
+<h1>Änderungsprotokoll</h1><p>Die letzten 200 Änderungen, einschließlich Korrekturen und Löschungen. Zeitangaben in UTC.</p>
+{% for e in entries %}
+<details class="history-entry"><summary>{{ e.created_at }} · {{ e.entity }} {{ e.entity_id }} · {{ e.action }}</summary>
+<p>Vorher</p><pre>{{ e.before_json or '–' }}</pre><p>Nachher</p><pre>{{ e.after_json or '–' }}</pre></details>
+{% else %}<p>Noch keine Änderungen.</p>{% endfor %}
+{% endblock %}

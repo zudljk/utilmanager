@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Gasverbrauch{% endblock %} · Ressourcenmanager</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}">
+</head>
+<body>
+  <header class="site-header">
+    <a class="brand" href="{{ url_for('index') }}">Ressourcenmanager <span>Flüssiggas</span></a>
+    <nav aria-label="Hauptnavigation">
+      <a href="{{ url_for('index') }}">Verbrauchstabelle</a>
+      <a href="{{ url_for('uploads') }}">Fotos prüfen</a>
+      <a href="{{ url_for('history') }}">Änderungen</a>
+    </nav>
+  </header>
+  <main>
+    {% for message in get_flashed_messages() %}<div class="notice" role="status">{{ message }}</div>{% endfor %}
+    {% block content %}{% endblock %}
+  </main>
+  <footer>Lieferungen in Litern · Verbrauch in kWh · Berechnete Werte werden erst bei der Anzeige gerundet.</footer>
+</body>
+</html>

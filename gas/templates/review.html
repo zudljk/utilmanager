@@ -1,0 +1,32 @@
+{% extends 'base.html' %}
+{% block content %}
+<a class="back" href="{{ url_for('uploads') }}">← Alle Fotos</a>
+<h1>Verbrauch am Foto prüfen</h1>
+<div class="two-columns review">
+  <div><img class="display-photo" src="{{ url_for('photo', upload_id=upload.id) }}" alt="Hochgeladenes Foto des Thermendisplays">
+    <details><summary>Erkannter Text</summary><pre>{{ upload.ocr_text or 'Kein Text erkannt.' }}</pre></details>
+  </div>
+  <section class="panel">
+  {% if upload.status == 'pending' %}
+    <p>Prüfe <strong>Zahl, Einheit und Monat</strong> am Foto. Die Erkennung ist ein Vorschlag.</p>
+    {% if upload.warning %}<p class="warning">{{ upload.warning }}</p>{% endif %}
+    {% if candidates|length > 1 %}<p>Mögliche Werte in kWh: {{ candidates|join(', ') }}. Wähle den zum Monatsverbrauch gehörenden Wert.</p>{% endif %}
+    <form method="post">
+      <input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="action" value="confirm">
+      <label>Verbrauchsmonat<input type="month" name="month" value="{{ upload.month }}" max="{{ previous_month }}" required></label>
+      <label>Bestätigter Verbrauch in kWh<input name="kwh" value="{{ candidate }}" inputmode="decimal" required></label>
+      <p class="hint">Ohne Tausendertrennzeichen. Ein bereits vorhandener Monatswert wird nicht überschrieben; du kannst ihn in der Tabelle bearbeiten.</p>
+      <button type="submit">Prüfen und als Verbrauch buchen</button>
+    </form>
+    <form method="post" class="reject-form">
+      <input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="action" value="reject">
+      <button class="secondary" type="submit">Foto verwerfen</button>
+    </form>
+  {% else %}
+    <h2>{{ 'Verbrauch gebucht' if upload.status == 'confirmed' else 'Foto verworfen' }}</h2>
+    <p>Monat: {{ upload.month|month_de }}.</p>
+    {% if upload.status == 'confirmed' %}<a href="{{ url_for('consumption', month=upload.month) }}">Gespeicherten Verbrauch ansehen</a>{% endif %}
+  {% endif %}
+  </section>
+</div>
+{% endblock %}

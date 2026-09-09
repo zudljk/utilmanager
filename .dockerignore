@@ -1,0 +1,9 @@
+.venv
+.git
+.env
+data
+backups
+__pycache__
+**/__pycache__
+*.ods
+tests

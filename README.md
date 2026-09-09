@@ -1,0 +1,256 @@
+# Ressourcenmanager – Flüssiggas
+
+Eine Flask-Anwendung für einen Haushalt: Tabellenansicht nach `Gasverbrauch.ods`,
+manuelle Monatswerte und Lieferungen, lokale Fotoerkennung mit Tesseract und
+SQLite. Frontend, API und OCR laufen in **einem Container**. Datenbank und Fotos
+liegen auf einem persistenten Volume. Keine externen OCR-Dienste, CDNs oder
+Frontend-Buildschritte.
+
+## Enthalten
+
+- Jahresweise Tabelle mit Verbrauch, Lieferungen, Restbestand, Füllstand,
+  Vorjahresvergleich, Projektion, Bewertungspreis und Verbrauchskosten.
+- Verbrauch und Lieferungen anlegen, korrigieren und ausdrücklich bestätigt löschen.
+- Änderungsprotokoll; Schutz vor doppelten Monatswerten, wiederholten Formularen
+  und dem Überschreiben zwischenzeitlich geänderter Einträge.
+- Einmaliger ODS-Import bei der Ersteinrichtung, alternativ manueller Anfangsbestand.
+- Foto-Upload per Browser oder API. OCR liefert einen **Entwurf**; erst die
+  Bestätigung im Browser erzeugt einen Verbrauchseintrag.
+- Konsistentes Backup der SQLite-Datenbank einschließlich der zugehörigen Fotos.
+
+Ein grafisches Dashboard und die Erkennung von Lieferscheinen/Rechnungen sind
+nicht Teil dieser Version. Lieferungen werden manuell eingetragen.
+
+## Mit Docker Compose starten
+
+Im Projektverzeichnis:
+
+```sh
+python3 manage.py init-env
+docker compose up -d --build
+```
+
+`init-env` benötigt nur die Python-Standardbibliothek und legt individuelle
+Zugangsdaten in `.env` an. Eine vorhandene Datei wird **nicht überschrieben**.
+Alternativ `.env.example` nach `.env` kopieren und die drei Geheimnisse setzen.
+Jedes benötigt mindestens 16 Zeichen, empfohlen sind zufällige 32-Byte-Werte.
+
+Die Oberfläche ist lokal unter **http://127.0.0.1:8080** erreichbar. Benutzername
+und Passwort stehen in `.env` unter `APP_USER` und `APP_PASSWORD`.
+Bei der ersten Anmeldung `Gasverbrauch.ods` im Browser auswählen und importieren.
+Die Datei wird geprüft und atomar übernommen. Bei Fehlern wird nichts importiert.
+
+Das Image enthält absichtlich keine private ODS-Datei oder voreingefüllte Datenbank.
+Das Compose-Volume `gas-data` ist unabhängig von einem eventuell vorhandenen
+lokalen `data/`-Ordner. Die Ersteinrichtung erfolgt daher pro Installation.
+
+### Einbindung auf dem Odroid
+
+Den Service aus `compose.yaml` in den vorhandenen Stack übernehmen und mit dem
+bestehenden Reverse Proxy verbinden. Im gemeinsamen Docker-Netz ist das Ziel
+`http://gasverbrauch:8000`. Die veröffentlichte Loopback-Portbindung kann dann
+entfallen. Für einen Reverse Proxy direkt auf dem Host ist das Ziel
+`http://127.0.0.1:8080`.
+
+- HTTPS am Reverse Proxy verwenden; danach `COOKIE_SECURE=true` setzen.
+- Den `Authorization`-Header an die App weiterreichen. Die App nutzt HTTP Basic
+  für den Browser und Bearer-Authentifizierung für `/api/`.
+- Upload-Limit des Proxys auf mindestens 12 MiB und Upstream-Timeout auf
+  mindestens 60 Sekunden setzen.
+- Das Volume auf einem **lokalen Datenträger** des Odroid betreiben, nicht auf
+  SMB/NFS. Bei einem Bind Mount benötigt UID/GID `10001` Schreibrechte.
+- Kein festes `platform` ist vorgegeben. Python-Basisimage, Pillow und Tesseract
+  müssen zur CPU und zum Betriebssystem passen. Das konkrete Odroid-Modell ist
+  noch unbekannt; der Build auf dem Gerät ist deshalb der abschließende Nachweis.
+
+Der Container läuft als UID `10001`, mit schreibgeschütztem Root-Dateisystem,
+einem beschreibbaren Datenvolume und temporärem Speicher unter `/tmp`.
+Ein Gunicorn-Prozess mit zwei Threads bedient Webanfragen; die Erkennung bekommt
+maximal 25 Sekunden. Es gibt weder Queue noch zusätzlichen Worker-Container.
+
+## Rechenmodell und Import
+
+Die Originaleinheiten bleiben erhalten: Lieferungen in Litern, Verbrauch in kWh.
+Dezimalwerte werden als exakte Dezimalzeichenfolgen gespeichert und in Python
+mit `Decimal` berechnet. Gerundet wird erst für die Anzeige.
+
+```text
+Bestand_kWh = Anfangsbestand_Liter × Faktor
+            + Summe(Lieferungen_Liter × Faktor)
+            − Summe(Verbrauch_kWh)
+Bestand_Liter = Bestand_kWh / Faktor
+Füllstand_% = Bestand_Liter / Tankvolumen_Liter × 100
+```
+
+Die mitgelieferte Quelle enthält 6.520 l Tankvolumen, den Faktor **6,57 kWh/l**
+und 4.956 l Anfangsbestand vor November 2019. Beim Import werden diese Werte
+aus dem ersten Blatt gelesen, nicht aus allen anderen Blättern übernommen.
+81 Monatswerte und sechs Lieferungen ergeben Ende Juli 2026 einen Bestand von
+**7.268,89 kWh = 1.106,375951… l**.
+
+- Der Verbrauch gehört zum abgelesenen **Bezugsmonat**, nicht zum Fotodatum.
+  Für neue Monatswerte sind nur abgeschlossene Monate erlaubt, Zeitzone Berlin.
+- Nullverbrauch (`0`) bleibt ein Messwert. Eine leere Zelle bleibt fehlend.
+  Insbesondere ist Juni 2025 in der Quelle mit `0` erfasst, August 2026 ist leer.
+- Nach einer Lücke wird kein vollständiger Rechenbestand ausgewiesen. Die
+  Projektion läuft mit dem gleichen Vorjahresmonat weiter, wenn vorhanden.
+  Bei später erfassten Monaten zieht sie wieder den tatsächlichen Verbrauch ab;
+  ältere Schätzanteile bleiben bis zum Nachtragen der Lücken geschätzt.
+- Fehlt auch der Vorjahres-/Vergleichswert, bleibt die Projektion offen.
+  Es wird kein Nullverbrauch und kein Wettermodell erfunden.
+- Frühe Vergleichswerte aus Spalte H bleiben zusätzliche Referenzen für den
+  jeweiligen Tabellenmonat und erzeugen keine weiteren Verbrauchsbuchungen.
+- Lieferungen aus der ODS sind monatsgenau. Ein genauer Liefertag bleibt leer.
+  Neue Lieferungen dürfen optional einen Tag haben. Mehrere Lieferungen pro
+  Monat sind möglich.
+- Spalte K enthält einen fortgeschriebenen **Bewertungspreis**. Beim Import
+  werden seine Änderungen separat erhalten; die tatsächlichen Einkaufspreise
+  der importierten Lieferungen bleiben unbekannt.
+- Bei neuen Lieferungen kann ein Preis angegeben werden. Er gilt ab dem
+  Liefermonat für die Verbrauchskosten, auch wenn darin ein historischer
+  Bewertungspreis steht. Innerhalb eines Monats gewinnt die letzte Lieferung
+  mit Preis, sortiert nach Datum; monatsgenaue Lieferungen stehen vor solchen
+  mit bekanntem Tag, untereinander nach Erfassungsreihenfolge. In späteren
+  Monaten gilt wieder ein dort explizit importierter Bewertungspreis, falls
+  vorhanden. Das bildet keine FIFO- oder Mischpreisbewertung ab.
+- Verbrauchskosten sind `Verbrauch_kWh / Faktor × Bewertungspreis`. Bei fehlendem
+  Verbrauch werden die Kosten anhand der Projektion als Schätzung ausgewiesen.
+  Es sind **keine Rechnungsbeträge** der Lieferungen.
+- Tankvolumen, Faktor und Anfangsbestand sind nach der Ersteinrichtung in dieser
+  Version nicht über die Oberfläche veränderbar. Damit ändern Konfigurations-
+  eingriffe keine historischen Berechnungen unbemerkt.
+
+Der Import führt keine ODS-Formeln aus. Er liest Eingaben und prüft die
+nachgerechneten Bestände gegen gespeicherte Formelergebnisse. Abweichungen
+über 0,01 kWh, unpassende Spalten, doppelte Monate und Formeln in der
+Verbrauchsspalte führen zum Abbruch. Ein weiterer Import in einen bereits
+eingerichteten Datenbestand wird abgelehnt; dieselbe Datei ist ein No-op.
+
+## iPhone-Foto-Endpoint
+
+```http
+POST /api/uploads
+Authorization: Bearer <UPLOAD_TOKEN>
+Content-Type: multipart/form-data
+Idempotency-Key: <optionale eindeutige ID pro Aufnahme>
+```
+
+Formularfelder:
+
+| Feld | Inhalt |
+| --- | --- |
+| `image` | JPEG, PNG oder WebP; maximal 12 MiB Anfragegröße und 25 Megapixel |
+| `month` | Verbrauchsmonat als `YYYY-MM`; ohne Angabe der letzte abgeschlossene Monat |
+
+HEIC zuerst auf dem iPhone in JPEG umwandeln. Die Anwendung richtet das Bild
+anhand seiner Orientierung aus, begrenzt es auf 2.400 Pixel Kantenlänge und
+speichert eine JPEG-Kopie ohne EXIF-Daten. Die Originaldatei bleibt auf dem
+iPhone; serverseitig wird diese normalisierte Kopie zur Prüfung aufbewahrt.
+
+Beispielantwort (`201 Created`):
+
+```json
+{
+  "id": "<upload-id>",
+  "month": "2026-08",
+  "status": "pending",
+  "candidates_kwh": ["3400"],
+  "warning": "",
+  "review_url": "/uploads/<upload-id>"
+}
+```
+
+`review_url` ist relativ zur App-Adresse. Dort wird der Wert geprüft, bei Bedarf
+korrigiert und gebucht. Mehrere OCR-Kandidaten werden nicht automatisch addiert.
+Ein OCR-Fehler lässt die manuelle Prüfung des Fotos weiterhin zu.
+
+Ein identischer Upload mit demselben Monat liefert das bestehende Ergebnis
+mit `200 OK`. Ein wiederverwendeter Schlüssel mit anderem Bild oder Monat
+liefert `409 Conflict`. Auch ein Foto, das bereits für einen anderen Monat
+vorliegt, wird nicht erneut angelegt. Gleichzeitig eintreffende Duplikate können
+mit `409` antworten; ein anschließender erneuter identischer Request liefert
+das vorhandene Ergebnis. Es wird dabei nie doppelt gebucht.
+
+Statusabfrage: `GET /api/uploads/<id>` mit demselben Bearer-Token.
+Der API-Token erlaubt keine Buchungen, Änderungen oder Löschungen von Verbrauch.
+
+### Ablauf im iPhone-Kurzbefehl
+
+1. Foto aufnehmen oder auswählen.
+2. Bild in JPEG konvertieren, ggf. verkleinern.
+3. Verbrauchsmonat bestimmen und zur Kontrolle anzeigen.
+4. Mit „Inhalte von URL abrufen“ als POST und Formular senden: `image` = Bild,
+   `month` = Monat. Header `Authorization` = `Bearer <UPLOAD_TOKEN>`.
+5. `review_url` aus der JSON-Antwort mit der App-Basisadresse kombinieren und
+   im Browser öffnen. Dort anmelden und den Messwert bestätigen.
+
+Bei langsamer Verbindung einen Timeout oder `409` nicht als erfolgreiche
+Buchung interpretieren; die Liste „Fotos prüfen“ zeigt eingegangene Aufnahmen.
+
+## Backup und Wiederherstellung
+
+Das Volume ist Persistenz, kein Backup. Ein laufendes SQLite-WAL-Databasefile
+nicht isoliert kopieren. Der Backup-Befehl nutzt die SQLite-Backup-API und
+kopiert genau die Fotos, auf die der Snapshot verweist. Fotos werden nach dem
+Upload nicht verändert oder gelöscht, auch nicht beim Verwerfen.
+
+Beispiel für einen neuen Backup-Namen (bei jeder Sicherung ändern):
+
+```sh
+docker compose exec gasverbrauch flask --app gas backup /tmp/gas-backup-2026-09-09
+mkdir -p backups
+docker compose cp gasverbrauch:/tmp/gas-backup-2026-09-09 backups/
+```
+
+Erst die Erfolgsmeldung abwarten, dann den vollständigen Ordner auf einen
+anderen Datenträger/Host sichern. `/tmp` ist flüchtig und im Beispiel auf
+128 MiB begrenzt; bei größerer Fotosammlung für Backups ein zusätzliches
+beschreibbares Backup-Verzeichnis einbinden. `.env` separat sicher verwahren.
+
+Wiederherstellung: App stoppen, den bisherigen Datenbestand aufbewahren,
+`gas.sqlite3` und den vollständigen Ordner `photos/` aus dem Backup in ein
+**leeres** Datenvolume kopieren, Eigentümer auf `10001:10001` setzen und die
+App mit diesem Volume starten. Keine alten `-wal`-/`-shm`-Dateien mit einem
+Snapshot mischen. Das Backup enthält auch Konfiguration und Änderungsprotokoll.
+
+## Lokale Entwicklung und Tests
+
+```sh
+python3 -m venv .venv
+.venv/bin/python -m pip install -r requirements.txt
+.venv/bin/python manage.py init-env
+.venv/bin/python manage.py import-ods Gasverbrauch.ods
+.venv/bin/python manage.py import-ods Gasverbrauch.ods --apply
+.venv/bin/python manage.py serve
+```
+
+Eine bereits angelegte `.env` weiterverwenden und den `init-env`-Schritt
+überspringen. `serve` bindet Gunicorn ausschließlich an Loopback, Standardport
+8080. Lokale Daten liegen unter `data/`. Tesseract muss für lokale OCR zusätzlich
+installiert sein; im Container ist es enthalten. Ohne Tesseract funktioniert die
+manuelle Fotoauswertung weiterhin.
+
+```sh
+.venv/bin/python -m unittest discover -s tests -v
+.venv/bin/python manage.py backup backups/test-restore
+```
+
+Die Tests verwenden temporäre Datenbanken und ändern die ODS-Datei nicht. Sie
+prüfen den echten ODS-Import, Null/fehlend, Korrekturen, Prognosen, Preise,
+Authentifizierung, CSRF, Idempotenz, Upload-Prüfung und Backup/Restore. Der
+Tesseract-Test verwendet ein synthetisches Bild; die Erkennungsqualität des
+konkreten Thermendisplays muss noch mit echten Fotos erprobt werden.
+
+## Struktur
+
+```text
+gas/
+  __init__.py   Flask-Routen, Authentifizierung und CLI
+  db.py         SQLite-Schema und Änderungsprotokoll
+  domain.py     Bestands-, Kosten- und Prognoserechnung
+  importer.py   Einmaliger ODS-Import
+  ocr.py        Bildprüfung und Tesseract
+  templates/    HTML-Oberfläche
+  static/       Lokales CSS
+tests/          Integrations- und Rechentests
+```

@@ -1,0 +1,11 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="form-page"><h1>Display fotografieren</h1>
+<form method="post" enctype="multipart/form-data" class="panel">
+  <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+  <label>Verbrauchsmonat<input name="month" type="month" value="{{ previous_month }}" max="{{ previous_month }}" required></label>
+  <label>Foto<input name="image" type="file" accept="image/jpeg,image/png,image/webp" required></label>
+  <p class="hint">JPEG, PNG oder WebP, maximal 12 MiB und 25 Megapixel. HEIC auf dem iPhone zuerst in JPEG umwandeln. Der Upload mit Texterkennung kann einige Sekunden dauern.</p>
+  <button type="submit">Hochladen und auslesen</button>
+</form></div>
+{% endblock %}

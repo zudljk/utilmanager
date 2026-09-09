@@ -1,0 +1,55 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="heading-row">
+  <div><p class="eyebrow">Flüssiggas</p><h1>Verbrauch &amp; Bestand</h1></div>
+  <div class="actions">
+    <a class="button secondary" href="{{ url_for('delivery') }}">Lieferung eintragen</a>
+    <a class="button" href="{{ url_for('consumption') }}">Verbrauch eintragen</a>
+  </div>
+</div>
+<p class="intro">Tankvolumen <strong>{{ settings.capacity_liters|num }} l</strong> · Umrechnung <strong>{{ settings.factor|num(2) }} kWh/l</strong></p>
+{% if last_complete %}
+<p class="balance">Bestand zum Ende von <strong>{{ last_complete.month|month_de }}</strong>: <strong>{{ last_complete.rest|num(2) }} l</strong> ({{ last_complete.fill|num(1) }} %). Berücksichtigt alle bis dahin vollständig erfassten Monate.</p>
+{% else %}<p class="balance">Anfangsbestand: {{ settings.opening_liters|num(2) }} l vor {{ settings.start_month|month_de }}. Noch kein lückenloser Monatsabschluss vorhanden.</p>{% endif %}
+{% if pending %}<p class="notice"><a href="{{ url_for('uploads') }}">{{ pending }} Foto(s) warten auf Prüfung.</a></p>{% endif %}
+<div class="table-toolbar">
+  <form method="get" class="year-filter">
+    <label for="year">Jahr</label>
+    <select name="year" id="year">{% for item in years %}<option value="{{ item }}" {% if item==year %}selected{% endif %}>{{ item }}</option>{% endfor %}</select>
+    <button class="secondary" type="submit">Anzeigen</button>
+  </form>
+  <span class="hint">Orange: Prognose · „fehlt“: noch kein Messwert</span>
+</div>
+<div class="table-scroll" role="region" aria-label="Monatliche Gasverbrauchstabelle" tabindex="0">
+<table class="ledger">
+  <thead><tr>
+    <th scope="col">Monat</th><th scope="col">Lieferung<br><small>Liter</small></th>
+    <th scope="col">Verbrauch<br><small>kWh</small></th><th scope="col">Restmenge<br><small>Liter</small></th>
+    <th scope="col">Füllstand<br><small>%</small></th><th scope="col">Vorjahr / Vergleich<br><small>kWh</small></th>
+    <th scope="col">Restmenge · Projektion<br><small>Liter</small></th><th scope="col">Füllstand · Projektion<br><small>%</small></th>
+    <th scope="col">Bewertung<br><small>€/Liter</small></th><th scope="col">Verbrauchskosten<br><small>€</small></th>
+  </tr></thead>
+  <tbody>
+    {% if year == settings.start_month[:4]|int %}
+    <tr class="opening"><th scope="row">Anfangsbestand</th><td colspan="3">{{ settings.opening_liters|num(2) }} l vor {{ settings.start_month|month_de }}</td><td colspan="6"></td></tr>
+    {% endif %}
+    {% for row in rows %}
+    <tr class="{% if row.month >= current_month %}future{% endif %}">
+      <th scope="row">{{ row.month|month_de }}</th>
+      <td>{% if row.deliveries %}{% for d in row.deliveries %}<a class="cell-link supply" href="{{ url_for('delivery', delivery_id=d.id) }}" title="Lieferung bearbeiten">+ {{ d.liters|quantity }}</a>{% endfor %}{% else %}<span class="muted">–</span>{% endif %}</td>
+      <td>{% if row.reading %}<a class="cell-link" href="{{ url_for('consumption', month=row.month) }}" title="Verbrauch bearbeiten">{{ row.kwh|quantity }}</a>{% elif row.month < current_month %}<a class="missing" href="{{ url_for('consumption', month=row.month) }}">fehlt · eintragen</a>{% else %}<span class="muted">offen</span>{% endif %}</td>
+      <td>{{ row.rest|num(1) }}</td><td>{{ row.fill|num(1) }}</td><td class="muted">{{ row.prior|quantity }}</td>
+      <td class="{% if row.estimated %}forecast{% endif %}">{{ row.forecast|num(1) }}</td>
+      <td class="{% if row.estimated %}forecast{% endif %}">{{ row.forecast_fill|num(1) }}</td>
+      <td>{{ row.price|num(3) }}</td><td class="{% if row.cost_estimated %}forecast{% endif %}">{{ row.cost|num(2) }}{% if row.cost_estimated and row.cost is not none %}<span class="sr-only"> geschätzt</span>{% endif %}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+<div class="table-notes">
+  <p>Restmenge = Anfangsbestand + Lieferungen − Verbrauch ÷ {{ settings.factor|num(2) }}. Nach einem fehlenden Monatswert bleibt der tatsächliche Rechenbestand offen.</p>
+  <p>Die Projektion verwendet bei fehlendem Verbrauch den gleichen Vorjahresmonat bzw. einen importierten Vergleichswert. Fehlt auch dieser, bleibt die Projektion offen. Negative Liter zeigen eine rechnerische Unterdeckung.</p>
+  <p>Verbrauchskosten = Verbrauch in Litern × Bewertungspreis. Historische Bewertungspreise stammen aus der Tabelle; neue Lieferpreise gelten ab ihrem Liefermonat. Bei mehreren Preisen im Monat gilt der zeitlich letzte. Ohne bekannten Tag entscheidet die Erfassungsreihenfolge zwischen monatsgenauen Lieferungen. Die Kosten sind keine Lieferrechnungen.</p>
+</div>
+{% endblock %}

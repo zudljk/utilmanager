@@ -1,0 +1,28 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="form-page">
+<a class="back" href="{{ url_for('index') }}">← Zur Tabelle</a>
+<h1>Lieferung {{ 'bearbeiten' if delivery else 'eintragen' }}</h1>
+<form method="post" class="panel">
+  <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+  <input type="hidden" name="submission_id" value="{{ submission_id }}">
+  {% if delivery %}<input type="hidden" name="revision" value="{{ delivery.revision }}">{% endif %}
+  <label>Liefermonat<input type="month" name="month" value="{{ delivery.month if delivery else default_month }}" max="{{ current_month }}" required></label>
+  <label>Genaues Lieferdatum (optional)<input type="date" name="delivery_date" value="{{ delivery.delivery_date or '' if delivery else '' }}"></label>
+  <label>Gelieferte Menge in Litern<input name="liters" value="{{ delivery.liters if delivery else '' }}" inputmode="decimal" required></label>
+  <label>Preis in €/Liter (optional)<input name="unit_price" value="{{ delivery.unit_price or '' if delivery else '' }}" inputmode="decimal"></label>
+  <p class="hint">Zahlen ohne Tausendertrennzeichen. Ein eingetragener Preis wird ab dem Liefermonat für die Verbrauchskosten verwendet. Bei importierten Lieferungen ist der tatsächliche Einkaufspreis zunächst unbekannt.</p>
+  <label>Notiz (optional)<textarea name="note" maxlength="2000">{{ delivery.note if delivery else '' }}</textarea></label>
+  <button type="submit">Lieferung speichern</button>
+</form>
+{% if delivery %}
+<details class="delete-panel"><summary>Lieferung löschen</summary>
+  <form method="post" action="{{ url_for('delete', kind='delivery', identifier=delivery.id) }}">
+    <input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="revision" value="{{ delivery.revision }}">
+    <label class="checkbox"><input type="checkbox" name="confirm" value="yes" required> Diese Lieferung löschen</label>
+    <button class="danger" type="submit">Bestätigte Lieferung löschen</button>
+  </form>
+</details>
+{% endif %}
+</div>
+{% endblock %}

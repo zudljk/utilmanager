@@ -1,0 +1,15 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="heading-row"><h1>Fotos prüfen</h1><a class="button" href="{{ url_for('web_upload') }}">Foto hochladen</a></div>
+<p>Hochgeladene Fotos verändern den Bestand erst nach deiner Bestätigung.</p>
+{% if uploads %}
+<div class="table-scroll"><table>
+<thead><tr><th>Verbrauchsmonat</th><th>Eingang (UTC)</th><th>Status</th><th>Foto</th></tr></thead>
+<tbody>{% for u in uploads %}<tr>
+<td>{{ u.month|month_de }}</td><td>{{ u.created_at }}</td>
+<td>{{ {'pending':'Prüfung erforderlich', 'confirmed':'Gebucht', 'rejected':'Verworfen'}[u.status] }}</td>
+<td><a href="{{ url_for('review', upload_id=u.id) }}">{{ 'Prüfen' if u.status == 'pending' else 'Ansehen' }}</a></td>
+</tr>{% endfor %}</tbody>
+</table></div>
+{% else %}<div class="panel"><p>Noch keine Fotos vorhanden. Du kannst ein Foto hier oder über den iPhone-Kurzbefehl hochladen.</p></div>{% endif %}
+{% endblock %}

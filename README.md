@@ -69,6 +69,42 @@ einem beschreibbaren Datenvolume und temporärem Speicher unter `/tmp`.
 Ein Gunicorn-Prozess mit zwei Threads bedient Webanfragen; die Erkennung bekommt
 maximal 25 Sekunden. Es gibt weder Queue noch zusätzlichen Worker-Container.
 
+### Betrieb unter einem Subpath
+
+Für beispielsweise `http://aludra.fritz.box/utilmanager/` in `.env` setzen:
+
+```dotenv
+APP_BASE_PATH=/utilmanager
+```
+
+Danach `docker compose up -d --build` ausführen. Ohne diese Variable (oder mit
+`APP_BASE_PATH=/`) läuft die Anwendung weiterhin unter `/`. Ein abschließender
+Slash wird entfernt; verschachtelte Pfade wie `/apps/utilmanager` sind möglich.
+Anzugeben ist nur der Pfad, keine vollständige URL.
+
+Der Reverse Proxy muss Anfragen unter diesem Pfad an den Container weiterleiten.
+Er kann den Präfix beibehalten oder entfernen. Beispiel für nginx im gemeinsamen
+Docker-Netz, mit beibehaltenem Präfix:
+
+```nginx
+location = /utilmanager {
+    return 308 /utilmanager/$is_args$args;
+}
+location /utilmanager/ {
+    proxy_pass http://gasverbrauch:8000;
+    proxy_set_header Host $http_host;
+    client_max_body_size 12m;
+    proxy_read_timeout 60s;
+}
+```
+
+Navigation, Stylesheets, Formulare, Foto-URLs, Weiterleitungen und API-Antworten
+berücksichtigen den konfigurierten Pfad. Session-Cookies gelten für diesen Pfad.
+API-Clients verwenden dann beispielsweise `/utilmanager/api/uploads`.
+Der interne Docker-Healthcheck unter `/healthz` funktioniert weiterhin.
+Direkte Backend-Anfragen ohne Präfix bleiben für Proxys mit entferntem Präfix
+möglich; ihre generierten Links enthalten ebenfalls `APP_BASE_PATH`.
+
 ## Rechenmodell und Import
 
 Die Originaleinheiten bleiben erhalten: Lieferungen in Litern, Verbrauch in kWh.

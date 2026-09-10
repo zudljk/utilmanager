@@ -23,12 +23,14 @@ from .domain import (ValidationError, formatted, ledger, month_key, number,
 from .importer import apply_import, read_ods
 from .ocr import normalize_image, recognize
 from .photos import photo_lock
+from .mount import BasePathMiddleware, normalize_base_path
 
 
 def create_app(test_config=None):
     app = Flask(__name__)
     app.config.from_mapping(
         DATA_DIR=os.environ.get('DATA_DIR', 'data'),
+        APP_BASE_PATH=os.environ.get('APP_BASE_PATH', ''),
         APP_USER=os.environ.get('APP_USER', 'admin'),
         APP_PASSWORD=os.environ.get('APP_PASSWORD', ''),
         UPLOAD_TOKEN=os.environ.get('UPLOAD_TOKEN', ''),
@@ -41,6 +43,11 @@ def create_app(test_config=None):
     )
     if test_config:
         app.config.update(test_config)
+    base_path = normalize_base_path(app.config['APP_BASE_PATH'])
+    app.config['APP_BASE_PATH'] = base_path
+    app.config['APPLICATION_ROOT'] = base_path or '/'
+    if base_path:
+        app.wsgi_app = BasePathMiddleware(app.wsgi_app, base_path)
     for key in ('APP_PASSWORD', 'UPLOAD_TOKEN', 'SECRET_KEY'):
         if len(app.config[key]) < 16:
             raise RuntimeError(f'{key} muss gesetzt sein und mindestens 16 Zeichen enthalten.')

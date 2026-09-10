@@ -4,6 +4,7 @@ services:
     restart: unless-stopped
     environment:
       DATA_DIR: /data
+      APP_BASE_PATH: ${APP_BASE_PATH:-}
       APP_USER: ${APP_USER:-admin}
       APP_PASSWORD: ${APP_PASSWORD:?APP_PASSWORD in .env setzen}
       UPLOAD_TOKEN: ${UPLOAD_TOKEN:?UPLOAD_TOKEN in .env setzen}

@@ -1,7 +1,7 @@
 {% extends 'base.html' %}
 {% block content %}
 <div class="heading-row"><h1>Fotos prüfen</h1><a class="button" href="{{ url_for('web_upload') }}">Foto hochladen</a></div>
-<p>Hochgeladene Fotos verändern den Bestand erst nach deiner Bestätigung.</p>
+<p>Hochgeladene Fotos verändern den Bestand erst nach deiner Bestätigung. Nach Übernahme oder Verwerfen wird die Bilddatei gelöscht; der Erfassungsverlauf bleibt erhalten.</p>
 {% if uploads %}
 <div class="table-scroll"><table>
 <thead><tr><th>Verbrauchsmonat</th><th>Eingang (UTC)</th><th>Status</th><th>Foto</th></tr></thead>

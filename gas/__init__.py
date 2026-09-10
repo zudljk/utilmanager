@@ -6,6 +6,7 @@ import secrets
 import sqlite3
 import uuid
 from contextlib import closing
+from functools import wraps
 from datetime import date
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -21,6 +22,7 @@ from .domain import (ValidationError, formatted, ledger, month_key, number,
                      previous_month, quantity, validate_period)
 from .importer import apply_import, read_ods
 from .ocr import normalize_image, recognize
+from .photos import photo_lock
 
 
 def create_app(test_config=None):
@@ -55,6 +57,27 @@ def create_app(test_config=None):
 
     def db_context():
         return connection(db_path)
+
+    def photo_operation(function):
+        @wraps(function)
+        def wrapped(*args, **kwargs):
+            with photo_lock(data_dir):
+                return function(*args, **kwargs)
+        return wrapped
+
+    def remove_photo(filename):
+        try:
+            (photo_dir / filename).unlink(missing_ok=True)
+            return True
+        except OSError:
+            app.logger.exception('Abgeschlossenes Foto konnte nicht gelöscht werden: %s', filename)
+            return False
+
+    # Also remove photos retained by older versions or left by an interrupted
+    # cleanup. Pending photos are never removed by this operation.
+    with photo_lock(data_dir), db_context() as db:
+        for row in db.execute("SELECT filename FROM uploads WHERE status != 'pending'"):
+            remove_photo(row['filename'])
 
     def configured(db):
         result = db.execute('SELECT * FROM settings WHERE id=1').fetchone()
@@ -249,6 +272,7 @@ def create_app(test_config=None):
         return redirect(url_for('index', year=month[:4]))
 
     @app.post('/delete/<kind>/<identifier>')
+    @photo_operation
     def delete(kind, identifier):
         if request.form.get('confirm') != 'yes':
             raise ValidationError('Bitte das Löschen ausdrücklich bestätigen.')
@@ -264,13 +288,16 @@ def create_app(test_config=None):
                 abort(409, 'Der Datensatz wurde inzwischen geändert. Bitte neu laden.')
             db.execute(f'DELETE FROM {table} WHERE {column}=?', (identifier,))
             if kind == 'consumption' and old['upload_id']:
-                db.execute("UPDATE uploads SET status='pending' WHERE id=?", (old['upload_id'],))
+                # The original photo has already been deleted after confirmation.
+                # Deleting the reading must not create an unreviewable draft.
+                db.execute("UPDATE uploads SET status='rejected' WHERE id=?", (old['upload_id'],))
             audit(db, 'delete', kind, identifier, before=old)
         flash('Eintrag gelöscht. Die Änderung bleibt im Änderungsprotokoll erhalten.')
         return redirect(url_for('index', year=old['month'][:4]))
 
     def upload_payload(row):
         return dict(id=row['id'], month=row['month'], status=row['status'],
+                    photo_available=row['status'] == 'pending' and (photo_dir / row['filename']).is_file(),
                     candidates_kwh=json.loads(row['candidates']), warning=row['warning'],
                     review_url=url_for('review', upload_id=row['id']))
 
@@ -332,6 +359,7 @@ def create_app(test_config=None):
         return redirect(url_for('review', upload_id=response.get_json()['id']))
 
     @app.route('/uploads/<upload_id>', methods=['GET', 'POST'])
+    @photo_operation
     def review(upload_id):
         with db_context() as db:
             row = db.execute('SELECT * FROM uploads WHERE id=?', (upload_id,)).fetchone()
@@ -340,6 +368,7 @@ def create_app(test_config=None):
             if request.method == 'GET':
                 values = json.loads(row['candidates'])
                 return render_template('review.html', upload=row, candidates=values,
+                                       photo_available=row['status'] == 'pending' and (photo_dir / row['filename']).is_file(),
                                        candidate=values[0] if len(values) == 1 else '')
             if row['status'] != 'pending':
                 abort(409, 'Dieses Foto wurde bereits bearbeitet.')
@@ -358,15 +387,22 @@ def create_app(test_config=None):
             if not changed:
                 abort(409, 'Dieses Foto wurde inzwischen bearbeitet.')
             audit(db, action, 'upload', upload_id, before=row)
+        # Commit the booking first. Any validation or database failure above
+        # preserves the photo. Backups hold the same cross-process lock.
+        removed = remove_photo(row['filename'])
         flash('Verbrauch bestätigt und gebucht.' if action == 'confirm' else 'Foto verworfen; kein Verbrauch gebucht.')
+        if not removed:
+            flash('Das Foto konnte noch nicht gelöscht werden. Die Bereinigung wird beim nächsten App-Start erneut versucht.')
         return redirect(url_for('uploads'))
 
     @app.get('/photos/<upload_id>')
     def photo(upload_id):
         with db_context() as db:
-            row = db.execute('SELECT filename FROM uploads WHERE id=?', (upload_id,)).fetchone()
+            row = db.execute('SELECT filename,status FROM uploads WHERE id=?', (upload_id,)).fetchone()
             if not row:
                 abort(404)
+            if row['status'] != 'pending':
+                abort(410, 'Das Foto wurde nach Abschluss der Prüfung gelöscht.')
             return send_from_directory(photo_dir, row['filename'], mimetype='image/jpeg')
 
     @app.get('/history')
@@ -393,8 +429,9 @@ def create_app(test_config=None):
 
     @app.cli.command('backup')
     @click.argument('destination', type=click.Path())
+    @photo_operation
     def backup_command(destination):
-        """Create a consistent SQLite snapshot and its immutable photos in a new directory."""
+        """Create a consistent SQLite snapshot with photos still awaiting review."""
         import shutil
         target = Path(destination).resolve()
         if target == data_dir or data_dir in target.parents:
@@ -402,7 +439,7 @@ def create_app(test_config=None):
         target.mkdir(parents=True, exist_ok=False)
         with db_context() as source, closing(sqlite3.connect(target / 'gas.sqlite3')) as dest:
             source.backup(dest)
-            names = [r[0] for r in dest.execute('SELECT filename FROM uploads')]
+            names = [r[0] for r in dest.execute("SELECT filename FROM uploads WHERE status='pending'")]
         (target / 'photos').mkdir()
         for name in names:
             shutil.copy2(photo_dir / name, target / 'photos' / name)

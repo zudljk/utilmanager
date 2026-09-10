@@ -3,12 +3,14 @@
 <a class="back" href="{{ url_for('uploads') }}">← Alle Fotos</a>
 <h1>Verbrauch am Foto prüfen</h1>
 <div class="two-columns review">
-  <div><img class="display-photo" src="{{ url_for('photo', upload_id=upload.id) }}" alt="Hochgeladenes Foto des Thermendisplays">
+  <div>{% if photo_available %}<img class="display-photo" src="{{ url_for('photo', upload_id=upload.id) }}" alt="Hochgeladenes Foto des Thermendisplays">
+    {% elif upload.status != 'pending' %}<p class="panel">Das Foto wird nach Abschluss der Prüfung gelöscht. Die Erfassungsdaten bleiben erhalten.</p>
+    {% else %}<p class="warning">Das Foto ist nicht verfügbar. Bitte den Wert anhand deiner eigenen Aufnahme prüfen.</p>{% endif %}
     <details><summary>Erkannter Text</summary><pre>{{ upload.ocr_text or 'Kein Text erkannt.' }}</pre></details>
   </div>
   <section class="panel">
   {% if upload.status == 'pending' %}
-    <p>Prüfe <strong>Zahl, Einheit und Monat</strong> am Foto. Die Erkennung ist ein Vorschlag.</p>
+    <p>Prüfe <strong>Zahl, Einheit und Monat</strong> am Foto. Die Erkennung ist ein Vorschlag. Nach erfolgreicher Übernahme oder Verwerfen wird das Foto gelöscht.</p>
     {% if upload.warning %}<p class="warning">{{ upload.warning }}</p>{% endif %}
     {% if candidates|length > 1 %}<p>Mögliche Werte in kWh: {{ candidates|join(', ') }}. Wähle den zum Monatsverbrauch gehörenden Wert.</p>{% endif %}
     <form method="post">

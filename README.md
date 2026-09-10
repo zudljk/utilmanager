@@ -1,4 +1,4 @@
-# Ressourcenmanager – Flüssiggas
+# utilmanager – Flüssiggas
 
 Eine Flask-Anwendung für einen Haushalt: Tabellenansicht nach `Gasverbrauch.ods`,
 manuelle Monatswerte und Lieferungen, lokale Fotoerkennung mit Tesseract und
@@ -15,7 +15,8 @@ Frontend-Buildschritte.
   und dem Überschreiben zwischenzeitlich geänderter Einträge.
 - Einmaliger ODS-Import bei der Ersteinrichtung, alternativ manueller Anfangsbestand.
 - Foto-Upload per Browser oder API. OCR liefert einen **Entwurf**; erst die
-  Bestätigung im Browser erzeugt einen Verbrauchseintrag.
+  Bestätigung im Browser erzeugt einen Verbrauchseintrag. Danach wird die
+  Bilddatei gelöscht, ebenso beim ausdrücklichen Verwerfen.
 - Konsistentes Backup der SQLite-Datenbank einschließlich der zugehörigen Fotos.
 
 Ein grafisches Dashboard und die Erkennung von Lieferscheinen/Rechnungen sind
@@ -154,6 +155,7 @@ Beispielantwort (`201 Created`):
   "id": "<upload-id>",
   "month": "2026-08",
   "status": "pending",
+  "photo_available": true,
   "candidates_kwh": ["3400"],
   "warning": "",
   "review_url": "/uploads/<upload-id>"
@@ -163,6 +165,27 @@ Beispielantwort (`201 Created`):
 `review_url` ist relativ zur App-Adresse. Dort wird der Wert geprüft, bei Bedarf
 korrigiert und gebucht. Mehrere OCR-Kandidaten werden nicht automatisch addiert.
 Ein OCR-Fehler lässt die manuelle Prüfung des Fotos weiterhin zu.
+
+### Aufbewahrung der Fotos
+
+- **Noch nicht geprüft:** Die Bilddatei bleibt für die Prüfung erhalten.
+- **Erfolgreich übernommen oder ausdrücklich verworfen:** Die Bilddatei wird
+  unmittelbar nach dem erfolgreichen Datenbank-Commit gelöscht.
+- **Fehler bei der Übernahme**, etwa ein schon vorhandener Monatswert: Das Foto
+  bleibt erhalten, damit du die Eingabe korrigieren kannst.
+
+Messwert, Monat, OCR-Text und Upload-ID bleiben als kleine Datenbankeinträge
+erhalten. Auch nach dem Löschen verhindert der Bild-Hash doppelte Uploads.
+Die Detailseite zeigt bei abgeschlossenen Vorgängen kein Bild mehr an.
+Ein später gelöschter Verbrauchseintrag erzeugt keinen neuen Fotoentwurf;
+der Wert kann bei Bedarf manuell neu erfasst werden.
+
+Beim App-Start werden auch noch vorhandene Bilder bereits abgeschlossener
+Vorgänge aus älteren Versionen bereinigt. Falls die Dateilöschung scheitert,
+bleibt die Buchung erhalten; die Oberfläche weist darauf hin und beim nächsten
+Start wird die Löschung erneut versucht. Offene Entwürfe werden nicht nach
+einer festen Frist gelöscht. Nicht mehr benötigte Aufnahmen bitte verwerfen.
+Bereits erstellte Backups werden nicht nachträglich verändert.
 
 Ein identischer Upload mit demselben Monat liefert das bestehende Ergebnis
 mit `200 OK`. Ein wiederverwendeter Schlüssel mit anderem Bild oder Monat
@@ -191,8 +214,10 @@ Buchung interpretieren; die Liste „Fotos prüfen“ zeigt eingegangene Aufnahm
 
 Das Volume ist Persistenz, kein Backup. Ein laufendes SQLite-WAL-Databasefile
 nicht isoliert kopieren. Der Backup-Befehl nutzt die SQLite-Backup-API und
-kopiert genau die Fotos, auf die der Snapshot verweist. Fotos werden nach dem
-Upload nicht verändert oder gelöscht, auch nicht beim Verwerfen.
+kopiert nur die Fotos der noch offenen Prüfungen im Snapshot. Eine gemeinsame
+Dateisperre verhindert, dass eine gleichzeitige Bestätigung während der
+Sicherung ein benötigtes Foto löscht. Abgeschlossene Vorgänge bleiben ohne
+Bilddatei im Datenbank-Snapshot enthalten.
 
 Beispiel für einen neuen Backup-Namen (bei jeder Sicherung ändern):
 

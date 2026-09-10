@@ -199,6 +199,9 @@ class AppTest(unittest.TestCase):
         self.assertEqual(result.status_code, 201)
         data = result.get_json()
         self.assertEqual(data['status'], 'pending')
+        self.assertTrue(data['photo_available'])
+        photo = Path(self.temp.name) / 'photos' / (data['id'] + '.jpg')
+        self.assertTrue(photo.exists())
         self.assertEqual(data['candidates_kwh'], ['3400'])
         with connection(self.path) as db:
             self.assertEqual(db.execute('SELECT COUNT(*) FROM consumption').fetchone()[0], 0)
@@ -209,12 +212,19 @@ class AppTest(unittest.TestCase):
         self.assertEqual(self.client.get(data['review_url'], headers=AUTH).status_code, 200)
         confirmed = self.post(data['review_url'], dict(action='confirm', month='2026-08', kwh='3401'))
         self.assertEqual(confirmed.status_code, 302)
+        self.assertFalse(photo.exists())
+        self.assertEqual(self.client.get('/photos/'+data['id'], headers=AUTH).status_code, 410)
+        self.assertNotIn('class="display-photo"', self.client.get(data['review_url'], headers=AUTH).text)
+        repeated = self.upload(key='unique-photo')
+        self.assertEqual(repeated.status_code, 200)
+        self.assertFalse(repeated.json['photo_available'])
+        self.assertFalse(photo.exists())
         self.assertEqual(self.client.get('/api/uploads/'+data['id'], headers=API_AUTH).json['status'], 'confirmed')
         self.assertEqual(self.post(data['review_url'], dict(action='confirm', month='2026-08', kwh='3401')).status_code, 409)
         with connection(self.path) as db:
             self.assertEqual(db.execute('SELECT kwh FROM consumption').fetchone()[0], '3401')
         self.post('/delete/consumption/2026-08', dict(confirm='yes', revision='1'))
-        self.assertEqual(self.client.get('/api/uploads/'+data['id'], headers=API_AUTH).json['status'], 'pending')
+        self.assertEqual(self.client.get('/api/uploads/'+data['id'], headers=API_AUTH).json['status'], 'rejected')
 
     @patch('gas.recognize', return_value=('', [], 'OCR fehlgeschlagen'))
     def test_upload_failure_manual_confirmation_and_rejection(self, _):
@@ -224,6 +234,7 @@ class AppTest(unittest.TestCase):
         self.assertIn('OCR fehlgeschlagen', self.client.get(result.json['review_url'], headers=AUTH).text)
         response = self.post(result.json['review_url'], dict(action='reject'))
         self.assertEqual(response.status_code, 302)
+        self.assertFalse((Path(self.temp.name) / 'photos' / (result.json['id']+'.jpg')).exists())
         with connection(self.path) as db:
             self.assertEqual(db.execute('SELECT COUNT(*) FROM consumption').fetchone()[0], 0)
 
@@ -244,6 +255,53 @@ class AppTest(unittest.TestCase):
         self.post('/consumption/new', dict(month='2026-08', kwh='500'))
         self.assertEqual(self.post(result.json['review_url'], dict(action='confirm', month='2026-08', kwh='3400')).status_code, 409)
         self.assertEqual(self.client.get('/api/uploads/'+result.json['id'], headers=API_AUTH).json['status'], 'pending')
+        self.assertTrue((Path(self.temp.name) / 'photos' / (result.json['id']+'.jpg')).exists())
+
+    @patch('gas.recognize', return_value=('3400 kWh', ['3400'], ''))
+    def test_failed_booking_preserves_photo_and_rolls_back(self, _):
+        self.setup_tank()
+        data = self.upload().json
+        with patch('gas.audit', side_effect=sqlite3.IntegrityError('simulated transaction failure')):
+            result = self.post(data['review_url'], dict(action='confirm', month='2026-08', kwh='3400'))
+        self.assertEqual(result.status_code, 409)
+        self.assertTrue((Path(self.temp.name) / 'photos' / (data['id']+'.jpg')).exists())
+        with connection(self.path) as db:
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM consumption').fetchone()[0], 0)
+            self.assertEqual(db.execute('SELECT status FROM uploads').fetchone()[0], 'pending')
+
+    @patch('gas.recognize', return_value=('3400 kWh', ['3400'], ''))
+    def test_failed_photo_deletion_is_retried_at_start_pending_preserved(self, _):
+        self.setup_tank()
+        done = self.upload().json
+        pending = self.upload(image_bytes()+b'other', month='2026-07').json
+        with patch.object(Path, 'unlink', side_effect=PermissionError('simulated deletion failure')):
+            with self.assertLogs(self.app.logger, level='ERROR'):
+                result = self.post(done['review_url'], dict(action='confirm', month='2026-08', kwh='3400'))
+        self.assertEqual(result.status_code, 302)
+        self.assertIn('konnte noch nicht gelöscht werden', self.client.get('/', headers=AUTH).text)
+        done_path = Path(self.temp.name) / 'photos' / (done['id']+'.jpg')
+        pending_path = Path(self.temp.name) / 'photos' / (pending['id']+'.jpg')
+        self.assertTrue(done_path.exists())
+        create_app(dict(self.app.config))
+        self.assertFalse(done_path.exists())
+        self.assertTrue(pending_path.exists())
+        with connection(self.path) as db:
+            self.assertEqual(db.execute('SELECT kwh FROM consumption').fetchone()[0], '3400')
+
+    @patch('gas.recognize', return_value=('3400 kWh', ['3400'], ''))
+    def test_backup_copies_only_pending_photos(self, _):
+        self.setup_tank()
+        done = self.upload().json
+        self.post(done['review_url'], dict(action='confirm', month='2026-08', kwh='3400'))
+        pending = self.upload(image_bytes()+b'other', month='2026-07').json
+        with tempfile.TemporaryDirectory() as parent:
+            destination = Path(parent)/'snapshot'
+            result = self.app.test_cli_runner().invoke(args=['backup', str(destination)])
+            self.assertEqual(result.exit_code, 0, result.output)
+            self.assertEqual([p.name for p in (destination/'photos').iterdir()], [pending['id']+'.jpg'])
+            with closing(sqlite3.connect(destination/'gas.sqlite3')) as db:
+                self.assertEqual(db.execute('SELECT COUNT(*) FROM uploads').fetchone()[0], 2)
+                self.assertEqual(db.execute('SELECT COUNT(*) FROM consumption').fetchone()[0], 1)
 
     @patch('gas.recognize', return_value=('3400 kWh', ['3400'], ''))
     def test_web_upload(self, _):

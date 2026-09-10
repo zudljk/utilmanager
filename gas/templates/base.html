@@ -3,12 +3,12 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{% block title %}Gasverbrauch{% endblock %} · Ressourcenmanager</title>
+  <title>{% block title %}Gasverbrauch{% endblock %} · utilmanager</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}">
 </head>
 <body>
   <header class="site-header">
-    <a class="brand" href="{{ url_for('index') }}">Ressourcenmanager <span>Flüssiggas</span></a>
+    <a class="brand" href="{{ url_for('index') }}">utilmanager <span>Flüssiggas</span></a>
     <nav aria-label="Hauptnavigation">
       <a href="{{ url_for('index') }}">Verbrauchstabelle</a>
       <a href="{{ url_for('uploads') }}">Fotos prüfen</a>

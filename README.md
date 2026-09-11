@@ -203,6 +203,27 @@ Schema und Host (gegebenenfalls mit Port) davor setzen. Dort wird der Wert gepr�
 korrigiert und gebucht. Mehrere OCR-Kandidaten werden nicht automatisch addiert.
 Ein OCR-Fehler lässt die manuelle Prüfung des Fotos weiterhin zu.
 
+### Fehlgeschlagene Uploads
+
+Unter **„Fotos prüfen“ → „Fehlgeschlagene Uploads“** erscheinen abgewiesene
+Foto-Uploads aus dem Kurzbefehl und dem Webformular: Zeitpunkt (UTC), HTTP-Status,
+Fehlergrund, Verarbeitungsschritt, Anfrageformat und -größe sowie – falls bereits
+ausgelesen – die Namen der Datei- und Textfelder. Feldwerte, Zugangsdaten und
+zusätzliche Bilddateien werden dafür nicht gespeichert. Das Protokoll behält
+automatisch nur die letzten 100 Fehler und ist Teil des SQLite-Backups.
+
+Auch Fehler vor der eigentlichen Fotoverarbeitung werden erfasst, z. B. fehlende
+Anmeldung (401), fehlendes Dateifeld oder ungültiges Bild (400), Konflikte (409)
+und zu große Anfragen (413). Bei internen Fehlern (500) nennt die Übersicht den
+Verarbeitungsschritt; technische Details stehen im Serverlog. Dort erscheint
+auch für jeden fehlgeschlagenen Upload eine Warnung mit Fehlergrund und
+Versuchsnummer (`X-Upload-Failure-ID` im Response-Header).
+
+Die Datenbank wird beim App-Start automatisch erweitert. Frühere Fehlversuche
+können nicht nachträglich rekonstruiert werden. Anfragen, die bereits Traefik
+oder Gunicorn abweisen und die Flask nicht erreichen, können hier nicht erfasst
+werden. Ist die Datenbank nicht beschreibbar, bleibt der Fehler im Serverlog.
+
 ### Aufbewahrung der Fotos
 
 - **Noch nicht geprüft:** Die Bilddatei bleibt für die Prüfung erhalten.

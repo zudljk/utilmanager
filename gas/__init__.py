@@ -13,9 +13,9 @@ from zoneinfo import ZoneInfo
 from datetime import datetime
 
 import click
-from flask import (Flask, Response, abort, flash, jsonify, redirect, render_template,
+from flask import (Flask, Response, abort, flash, g, jsonify, redirect, render_template,
                    request, send_from_directory, session, url_for)
-from werkzeug.exceptions import HTTPException
+from werkzeug.exceptions import BadRequest, HTTPException
 
 from .db import audit, connection, initialize
 from .domain import (ValidationError, formatted, ledger, month_key, number,
@@ -102,15 +102,18 @@ def create_app(test_config=None):
 
     @app.before_request
     def authenticate():
+        g.upload_stage = 'Anmeldung und Anfrageprüfung'
         if request.path == '/healthz' and request.method == 'GET':
             return None
         if request.path.startswith('/api/'):
             expected = 'Bearer ' + app.config['UPLOAD_TOKEN']
             if not equal(request.headers.get('Authorization'), expected):
+                g.upload_error = 'Gültiger Bearer-Token erforderlich.'
                 return jsonify(error='Gültiger Bearer-Token erforderlich.'), 401
         else:
             auth = request.authorization
             if not auth or auth.type != 'basic' or not equal(auth.username, app.config['APP_USER']) or not equal(auth.password, app.config['APP_PASSWORD']):
+                g.upload_error = 'Anmeldung erforderlich.'
                 return Response('Anmeldung erforderlich.', 401,
                                 {'WWW-Authenticate': 'Basic realm="Gasverbrauch", charset="UTF-8"'})
             if request.method == 'POST' and not (session.get('csrf') and equal(request.form.get('csrf'), session['csrf'])):
@@ -118,6 +121,8 @@ def create_app(test_config=None):
 
     @app.after_request
     def headers(response):
+        if request.method == 'POST' and request.path in ('/api/uploads', '/uploads/new') and response.status_code >= 400:
+            record_upload_failure(response)
         response.headers['X-Content-Type-Options'] = 'nosniff'
         response.headers['X-Frame-Options'] = 'DENY'
         response.headers['Referrer-Policy'] = 'same-origin'
@@ -125,21 +130,62 @@ def create_app(test_config=None):
         response.headers['Cache-Control'] = 'no-store'
         return response
 
+    def diagnostic_text(value, limit=1000):
+        # Only bounded diagnostic metadata, never request bodies or credentials.
+        value = str(value)
+        for key in ('UPLOAD_TOKEN', 'APP_PASSWORD', 'SECRET_KEY'):
+            value = value.replace(app.config[key], '[entfernt]')
+        return ''.join(char if char.isprintable() else ' ' for char in value)[:limit]
+
+    def record_upload_failure(response):
+        reason = diagnostic_text(getattr(g, 'upload_error', 'Interner Serverfehler. Details stehen im Serverlog.'))
+        stage = getattr(g, 'upload_stage', 'Anfrageprüfung')
+        source = 'iPhone / API' if request.path == '/api/uploads' else 'Webformular'
+        # Do not access request.form/files here: parsing may already have failed,
+        # or the request may have been rejected before reading its body (401/413).
+        fields = getattr(g, 'upload_fields', None)
+        failure_id = None
+        try:
+            with db_context() as db:
+                inserted_id = db.execute(
+                    'INSERT INTO upload_failures(source,status_code,reason,stage,content_type,content_length,fields_json) VALUES(?,?,?,?,?,?,?)',
+                    (source, response.status_code, reason, stage, diagnostic_text(request.mimetype, 128),
+                     request.content_length, json.dumps(fields, ensure_ascii=False))).lastrowid
+                db.execute('DELETE FROM upload_failures WHERE id NOT IN (SELECT id FROM upload_failures ORDER BY id DESC LIMIT 100)')
+            failure_id = inserted_id
+        except (sqlite3.Error, OSError):
+            # A full/unavailable database must not replace the original error.
+            app.logger.exception('Upload-Fehlerprotokoll konnte nicht gespeichert werden.')
+        app.logger.warning('Foto-Upload fehlgeschlagen: Versuch=%s Quelle=%s HTTP=%s Schritt=%s Grund=%s',
+                           failure_id or '-', source, response.status_code, stage, reason)
+        if failure_id is not None:
+            response.headers['X-Upload-Failure-ID'] = str(failure_id)
+
     @app.errorhandler(ValidationError)
     def validation_error(exc):
+        g.upload_error = str(exc)
         if request.path.startswith('/api/'):
             return jsonify(error=str(exc)), 400
         return render_template('error.html', message=str(exc)), 400
 
     @app.errorhandler(HTTPException)
     def http_error(exc):
+        message = exc.description
+        if exc.code == 413:
+            message = 'Anfrage zu groß. Maximal 12 MiB insgesamt und 128 KiB für Text-Formularfelder.'
+        elif exc.code == 400 and exc.description == BadRequest.description:
+            message = 'Die Anfrage ist unvollständig oder ungültig. Bitte das Formularformat prüfen.'
+        elif exc.code == 500:
+            message = 'Interner Serverfehler. Details stehen im Serverlog.'
+        g.upload_error = message
         if request.path.startswith('/api/'):
-            return jsonify(error=exc.description), exc.code
-        return render_template('error.html', message=('Datei zu groß. Maximal 12 MiB.' if exc.code == 413 else exc.description)), exc.code
+            return jsonify(error=message), exc.code
+        return render_template('error.html', message=message), exc.code
 
     @app.errorhandler(sqlite3.IntegrityError)
     def conflict(exc):
         message = 'Der Datensatz existiert bereits oder wurde gleichzeitig geändert. Bitte die Übersicht neu laden.'
+        g.upload_error = message
         if request.path.startswith('/api/'):
             return jsonify(error=message), 409
         return render_template('error.html', message=message), 409
@@ -310,13 +356,22 @@ def create_app(test_config=None):
 
     @app.post('/api/uploads')
     def upload():
+        g.upload_stage = 'Formular lesen'
+        form, files = request.form, request.files
+        g.upload_fields = {
+            'text': [diagnostic_text(name, 80) for name in list(form)[:20]],
+            'files': [diagnostic_text(name, 80) for name in list(files)[:20]],
+        }
+        g.upload_stage = 'Verbrauchsmonat und Tank prüfen'
         with db_context() as db:
-            month = validate_period(request.form.get('month') or previous_month(today()), configured(db), today())
-        source = request.files.get('image')
+            month = validate_period(form.get('month') or previous_month(today()), configured(db), today())
+        g.upload_stage = 'Fotodatei lesen'
+        source = files.get('image')
         if not source:
-            raise ValidationError('Das Multipart-Feld image mit einem Foto fehlt.')
+            raise ValidationError('Das Multipart-Dateifeld image mit einem Foto fehlt. In Kurzbefehle: Anfragetext „Formular“, Feldtyp „Datei“, Schlüssel „image“ und die Foto-Variable als Wert auswählen.')
         raw = source.read()
         digest = hashlib.sha256(raw).hexdigest()
+        g.upload_stage = 'Doppelte Uploads prüfen'
         key = request.headers.get('Idempotency-Key') or None
         if key and (len(key) > 128 or not key.isascii()):
             raise ValidationError('Idempotency-Key muss aus höchstens 128 ASCII-Zeichen bestehen.')
@@ -326,13 +381,17 @@ def create_app(test_config=None):
                 if existing['sha256'] != digest or existing['month'] != month:
                     abort(409, 'Foto oder Idempotency-Key wurde bereits für einen anderen Upload verwendet.')
                 return jsonify(upload_payload(existing)), 200
+        g.upload_stage = 'Bildformat prüfen'
         jpeg = normalize_image(raw)
         upload_id = uuid.uuid4().hex
         filename = upload_id + '.jpg'
         path = photo_dir / filename
-        path.write_bytes(jpeg)
         try:
+            g.upload_stage = 'Bilddatei speichern'
+            path.write_bytes(jpeg)
+            g.upload_stage = 'Texterkennung'
             text, candidates, warning = recognize(path)
+            g.upload_stage = 'Fotoentwurf speichern'
             with db_context() as db:
                 db.execute('INSERT INTO uploads(id,sha256,request_key,month,filename,ocr_text,candidates,warning) VALUES(?,?,?,?,?,?,?,?)',
                            (upload_id, digest, key, month, filename, text, json.dumps(candidates), warning))
@@ -354,7 +413,10 @@ def create_app(test_config=None):
     def uploads():
         with db_context() as db:
             rows = db.execute("SELECT * FROM uploads ORDER BY status='pending' DESC,created_at DESC").fetchall()
-            return render_template('uploads.html', uploads=rows)
+            failures = [dict(row) for row in db.execute('SELECT * FROM upload_failures ORDER BY id DESC LIMIT 100')]
+            for failure in failures:
+                failure['fields'] = json.loads(failure['fields_json'])
+            return render_template('uploads.html', uploads=rows, failures=failures)
 
     @app.get('/help/iphone-shortcut')
     def iphone_shortcut():

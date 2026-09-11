@@ -263,6 +263,135 @@ class AppTest(unittest.TestCase):
         self.assertEqual(response.status_code, 413)
         self.assertIn('error', response.json)
 
+    def test_failed_uploads_persist_reasons_and_safe_metadata(self):
+        self.setup_tank()
+        with self.assertLogs(self.app.logger, level='WARNING') as logs:
+            missing = self.client.post('/api/uploads', headers=API_AUTH,
+                                       data={'image': 'not-a-file-secret-value'})
+            invalid = self.upload(b'not-a-photo-secret-value')
+            month = self.upload(month='2026-09')
+            unauthorized = self.client.post('/api/uploads', headers={'Authorization': 'Bearer wrong-secret'})
+            self.app.config['MAX_CONTENT_LENGTH'] = 200
+            oversized = self.upload()
+        self.assertEqual([r.status_code for r in (missing, invalid, month, unauthorized, oversized)],
+                         [400, 400, 400, 401, 413])
+        with connection(self.path) as db:
+            rows = [dict(row) for row in db.execute('SELECT * FROM upload_failures ORDER BY id')]
+            self.assertEqual(len(rows), 5)
+            self.assertEqual(json.loads(rows[0]['fields_json']), {'text': ['image'], 'files': []})
+            self.assertEqual(json.loads(rows[1]['fields_json'])['files'], ['image'])
+            self.assertIsNone(json.loads(rows[-1]['fields_json']))
+            self.assertEqual(rows[1]['stage'], 'Bildformat prüfen')
+            self.assertEqual(rows[2]['stage'], 'Verbrauchsmonat und Tank prüfen')
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM uploads').fetchone()[0], 0)
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM consumption').fetchone()[0], 0)
+        self.assertEqual(list((Path(self.temp.name) / 'photos').iterdir()), [])
+        self.assertIn('Multipart-Dateifeld image', logs.output[0])
+        self.assertEqual(missing.headers['X-Upload-Failure-ID'], str(rows[0]['id']))
+        restarted = create_app(dict(self.app.config)).test_client()
+        self.assertEqual(restarted.get('/uploads').status_code, 401)
+        page = restarted.get('/uploads', headers=AUTH)
+        self.assertIn('Fehlgeschlagene Uploads (5)', page.text)
+        self.assertIn('HTTP 413', page.text)
+        self.assertIn('Bildformat prüfen', page.text)
+        for secret in (TOKEN, PASSWORD, 'wrong-secret', 'not-a-file-secret-value', 'not-a-photo-secret-value'):
+            self.assertNotIn(secret, page.text + str(rows) + str(logs.output))
+
+    def test_web_upload_and_unreadable_request_failures_are_recorded(self):
+        self.setup_tank()
+        with self.assertLogs(self.app.logger, level='WARNING'):
+            csrf = self.client.post('/uploads/new', headers=AUTH, data={})
+            invalid = self.post('/uploads/new', {'image': (io.BytesIO(b'bad'), 'bad.jpg')})
+            malformed = self.client.post('/api/uploads', headers=API_AUTH, data=b'x',
+                content_type='multipart/form-data; boundary=test', environ_overrides={'CONTENT_LENGTH': '100'})
+        self.assertEqual([r.status_code for r in (csrf, invalid, malformed)], [400, 400, 400])
+        with connection(self.path) as db:
+            rows = db.execute('SELECT * FROM upload_failures ORDER BY id').fetchall()
+            self.assertEqual(len(rows), 3)
+            self.assertEqual(rows[0]['source'], 'Webformular')
+            self.assertIn('Formular ist abgelaufen', rows[0]['reason'])
+            self.assertIn('Foto konnte nicht gelesen', rows[1]['reason'])
+            self.assertEqual(rows[2]['stage'], 'Formular lesen')
+            self.assertIsNone(json.loads(rows[2]['fields_json']))
+
+    @patch('gas.recognize', return_value=('3400 kWh', ['3400'], ''))
+    def test_upload_failure_conflict_success_and_other_errors(self, _):
+        self.setup_tank()
+        self.assertEqual(self.upload().status_code, 201)
+        self.assertEqual(self.upload().status_code, 200)
+        with self.assertLogs(self.app.logger, level='WARNING'):
+            self.assertEqual(self.upload(month='2026-07').status_code, 409)
+        self.client.get('/api/uploads/unknown', headers=API_AUTH)
+        self.post('/consumption/new', {'month': 'invalid'})
+        with connection(self.path) as db:
+            rows = db.execute('SELECT * FROM upload_failures').fetchall()
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(rows[0]['status_code'], 409)
+            self.assertIn('bereits', rows[0]['reason'])
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM uploads').fetchone()[0], 1)
+
+    def test_internal_upload_failure_cleans_photo_and_records_stage(self):
+        self.setup_tank()
+        self.app.config['PROPAGATE_EXCEPTIONS'] = False
+        with patch('gas.recognize', side_effect=RuntimeError('technical detail')), self.assertLogs(self.app.logger):
+            response = self.upload()
+        self.assertEqual(response.status_code, 500)
+        with connection(self.path) as db:
+            failure = db.execute('SELECT * FROM upload_failures').fetchone()
+            self.assertEqual(failure['stage'], 'Texterkennung')
+            self.assertEqual(failure['status_code'], 500)
+            self.assertNotIn('technical detail', failure['reason'])
+        self.assertEqual(list((Path(self.temp.name) / 'photos').iterdir()), [])
+
+    def test_upload_failure_retention_and_database_unavailable(self):
+        with connection(self.path) as db:
+            db.executemany("INSERT INTO upload_failures(source,status_code,reason,stage,content_type,fields_json) VALUES('API',400,?,'Test','','null')",
+                           [(f'Failure {i}',) for i in range(100)])
+        with self.assertLogs(self.app.logger, level='WARNING'):
+            self.client.post('/api/uploads')
+        with connection(self.path) as db:
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM upload_failures').fetchone()[0], 100)
+            self.assertEqual(db.execute('SELECT MIN(id) FROM upload_failures').fetchone()[0], 2)
+        with patch('gas.connection', side_effect=sqlite3.OperationalError('database full')), self.assertLogs(self.app.logger) as logs:
+            response = self.client.post('/api/uploads')
+        self.assertEqual(response.status_code, 401)
+        self.assertIn('Gültiger Bearer-Token', response.json['error'])
+        self.assertIn('konnte nicht gespeichert', str(logs.output))
+        self.assertNotIn('X-Upload-Failure-ID', response.headers)
+
+    def test_upload_failure_schema_upgrade_preserves_existing_data(self):
+        self.setup_tank()
+        self.post('/consumption/new', {'month': '2026-08', 'kwh': '657'})
+        with connection(self.path) as db:
+            db.execute('DROP TABLE upload_failures')
+            db.execute('PRAGMA user_version=1')
+        app = create_app(dict(self.app.config))
+        with self.assertLogs(app.logger, level='WARNING'):
+            app.test_client().post('/api/uploads')
+        with connection(self.path) as db:
+            self.assertEqual(db.execute('PRAGMA user_version').fetchone()[0], 2)
+            self.assertEqual(db.execute('SELECT kwh FROM consumption').fetchone()[0], '657')
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM upload_failures').fetchone()[0], 1)
+
+    def test_upload_diagnostics_at_subpath_escape_and_redact_field_names(self):
+        self.setup_tank()
+        app = create_app({**self.app.config, 'APP_BASE_PATH': '/utilmanager'})
+        client = app.test_client()
+        with self.assertLogs(app.logger, level='WARNING'):
+            response = client.post('/utilmanager/api/uploads', headers=API_AUTH,
+                                   data={'<script>alert(1)</script>': 'ignored', TOKEN: 'ignored'})
+            # Also accept a request whose prefix was stripped by Traefik.
+            client.post('/api/uploads', headers=API_AUTH, data={})
+        self.assertEqual(response.status_code, 400)
+        page = client.get('/utilmanager/uploads', headers=AUTH)
+        self.assertEqual(page.status_code, 200)
+        self.assertIn('Fehlgeschlagene Uploads (2)', page.text)
+        self.assertIn('&lt;script&gt;', page.text)
+        self.assertNotIn('<script>alert', page.text)
+        self.assertNotIn(TOKEN, page.text)
+        self.assertIn('[entfernt]', page.text)
+        self.assertIn('href="/utilmanager/help/iphone-shortcut"', page.text)
+
     @patch('gas.recognize', return_value=('3400 kWh', ['3400'], ''))
     def test_idempotency_conflicts_and_existing_reading(self, _):
         self.setup_tank()

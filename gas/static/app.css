@@ -305,6 +305,12 @@ pre {
   padding:15px}
 .history-entry summary {
   overflow-wrap:anywhere}
+.upload-failures {
+  margin:26px 0}
+.upload-failures .history-entry {
+  border:1px solid var(--line);
+  border-radius:7px;
+  margin:8px 0}
 footer {
   max-width:1600px;
   margin:auto;

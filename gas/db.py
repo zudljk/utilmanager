@@ -37,7 +37,13 @@ CREATE TABLE IF NOT EXISTS audit (
 CREATE TABLE IF NOT EXISTS imports (
  sha256 TEXT PRIMARY KEY, filename TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
-PRAGMA user_version=1;
+CREATE TABLE IF NOT EXISTS upload_failures (
+ id INTEGER PRIMARY KEY AUTOINCREMENT, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ source TEXT NOT NULL, status_code INTEGER NOT NULL, reason TEXT NOT NULL,
+ stage TEXT NOT NULL, content_type TEXT NOT NULL, content_length INTEGER,
+ fields_json TEXT NOT NULL
+);
+PRAGMA user_version=2;
 """
 
 
@@ -52,7 +58,7 @@ def connect(path):
 def initialize(path):
     with connection(path) as db:
         version = db.execute('PRAGMA user_version').fetchone()[0]
-        if version not in (0, 1):
+        if version not in (0, 1, 2):
             raise RuntimeError(f'Unbekannte Datenbankversion: {version}')
         db.execute('PRAGMA journal_mode=WAL')
         db.executescript(SCHEMA)

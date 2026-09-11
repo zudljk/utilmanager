@@ -5,6 +5,29 @@
   <a class="button" href="{{ url_for('web_upload') }}">Foto hochladen</a>
 </div></div>
 <p>Hochgeladene Fotos verändern den Bestand erst nach deiner Bestätigung. Nach Übernahme oder Verwerfen wird die Bilddatei gelöscht; der Erfassungsverlauf bleibt erhalten.</p>
+<section class="upload-failures" aria-labelledby="failures-title">
+<h2 id="failures-title">Fehlgeschlagene Uploads{% if failures %} ({{ failures|length }}){% endif %}</h2>
+<p class="hint">Hier stehen die letzten 100 fehlgeschlagenen Upload-Versuche, die die Anwendung erreicht haben. Gespeichert werden nur Fehlerangaben, keine zusätzlichen Fotos. Ältere Fehler werden automatisch entfernt.</p>
+{% for f in failures %}
+<details class="history-entry">
+  <summary><strong>{{ f.created_at }} UTC · HTTP {{ f.status_code }}</strong> · {{ f.reason }}</summary>
+  <dl class="shortcut-settings">
+    <dt>Versuch</dt><dd>#{{ f.id }} · {{ f.source }}</dd>
+    <dt>Verarbeitungsschritt</dt><dd>{{ f.stage }}</dd>
+    <dt>Anfrageformat</dt><dd>{{ f.content_type or 'Nicht angegeben' }}</dd>
+    <dt>Anfragegröße</dt><dd>{{ (f.content_length|string + ' Bytes') if f.content_length is not none else 'Nicht angegeben' }}</dd>
+    {% if f.fields is not none %}
+    <dt>Dateifelder</dt><dd>{{ f.fields.files|join(', ') or 'Keine' }}</dd>
+    <dt>Textfelder</dt><dd>{{ f.fields.text|join(', ') or 'Keine' }}</dd>
+    {% else %}
+    <dt>Formularfelder</dt><dd>Nicht ausgelesen; die Anfrage wurde vorher abgewiesen oder konnte nicht vollständig gelesen werden.</dd>
+    {% endif %}
+  </dl>
+  <a href="{{ url_for('iphone_shortcut') }}">Anleitung für den iPhone-Kurzbefehl</a>
+</details>
+{% else %}<p>Noch keine fehlgeschlagenen Uploads protokolliert.</p>{% endfor %}
+</section>
+<h2>Erfasste Fotos</h2>
 {% if uploads %}
 <div class="table-scroll"><table>
 <thead><tr><th>Verbrauchsmonat</th><th>Eingang (UTC)</th><th>Status</th><th>Foto</th></tr></thead>

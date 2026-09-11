@@ -1,0 +1,90 @@
+{% extends 'base.html' %}
+{% block title %}iPhone-Kurzbefehl einrichten{% endblock %}
+{% block content %}
+<article class="shortcut-guide">
+  <a class="back" href="{{ url_for('uploads') }}">← Zur Fotoübersicht</a>
+  <p class="eyebrow">Einmal einrichten · Jeden Monat verwenden</p>
+  <h1>iPhone-Kurzbefehl einrichten</h1>
+  <p class="intro">Display fotografieren, hochladen und den erkannten Verbrauch im Browser bestätigen.</p>
+  <section class="panel" aria-labelledby="connection-title">
+    <h2 id="connection-title">Deine Verbindungsdaten</h2>
+    <p>Öffne diese Anleitung über dieselbe Serveradresse, die du auf dem iPhone verwendest. Das iPhone muss den Server erreichen können, z. B. über dein Heim-WLAN oder VPN.</p>
+    <p id="local-address-warning" class="warning" hidden>Diese Seite wurde über eine lokale Adresse dieses Rechners geöffnet. Öffne sie stattdessen über die im Heimnetz erreichbare Serveradresse, bevor du die URLs kopierst.</p>
+    <noscript><p>Für vollständige kopierbare URLs bitte JavaScript aktivieren. Alternativ vor den Upload-Pfad Schema, Host und gegebenenfalls Port aus der Browseradresse setzen.</p></noscript>
+    <label for="shortcut-upload-url">Upload-Adresse</label>
+    <div class="copy-field">
+      <input id="shortcut-upload-url" readonly value="{{ url_for('upload') }}" data-public-path="{{ url_for('upload') }}" spellcheck="false">
+      <button type="button" class="secondary" data-copy="shortcut-upload-url" hidden>Adresse kopieren</button>
+    </div>
+    <label for="shortcut-origin">Serveradresse für die Antwort (ohne Subpath)</label>
+    <div class="copy-field">
+      <input id="shortcut-origin" readonly value="Schema und Host aus der Browseradresse" spellcheck="false">
+      <button type="button" class="secondary" data-copy="shortcut-origin" hidden>Serveradresse kopieren</button>
+    </div>
+    <p id="copy-status" class="hint" role="status" aria-live="polite"></p>
+    <p>Außerdem brauchst du einmalig den Wert <code>UPLOAD_TOKEN</code> aus der <code>.env</code> deiner Serverinstallation. Das ist der Upload-Schlüssel, nicht dein Passwort für die Webanmeldung. Bewahre ihn im Kurzbefehl auf und entferne ihn, bevor du den Kurzbefehl mit anderen teilst.</p>
+  </section>
+
+  <ol class="shortcut-steps">
+    <li>
+      <h2>Neuen Kurzbefehl anlegen</h2>
+      <p>Öffne auf dem iPhone die App <strong>Kurzbefehle</strong>, tippe auf <strong>+</strong> und nenne den Kurzbefehl beispielsweise <strong>Gasverbrauch erfassen</strong>. Füge die folgenden Aktionen in dieser Reihenfolge hinzu. Je nach iOS-Version können die Bezeichnungen leicht abweichen.</p>
+    </li>
+    <li>
+      <h2>Foto aufnehmen und als JPEG vorbereiten</h2>
+      <p>Füge <strong>„Foto aufnehmen“</strong> hinzu: ein Foto mit der Rückkamera, mit Kameravorschau. Fotografiere die Monatsanzeige möglichst gerade, gut lesbar und ohne Spiegelungen.</p>
+      <p>Danach <strong>„Bildgröße ändern“</strong>: Breite <strong>1600 Pixel</strong>, Höhe automatisch. Füge anschließend <strong>„Bild konvertieren“</strong> mit dem Format <strong>JPEG</strong> hinzu. So wird auch eine HEIC-Aufnahme vor dem Upload umgewandelt.</p>
+      <p>Speichere das Ergebnis mit <strong>„Variable festlegen“</strong> unter dem Namen <strong>Verbrauchsfoto</strong>. Diese Variable wird später als Datei hochgeladen.</p>
+    </li>
+    <li>
+      <h2>Upload-Adresse einfügen</h2>
+      <p>Füge die Aktion <strong>„URL“</strong> hinzu. Kopiere die vollständige <strong>Upload-Adresse</strong> von oben in das URL-Feld. Ein vorhandenes <code>/utilmanager</code> ist darin bereits enthalten.</p>
+    </li>
+    <li>
+      <h2>Foto an die Anwendung senden</h2>
+      <p>Füge <strong>„Inhalte von URL abrufen“</strong> hinzu und verwende die URL aus der vorherigen Aktion. Klappe die zusätzlichen Optionen auf und stelle Folgendes ein:</p>
+      <dl class="shortcut-settings">
+        <dt>Methode</dt><dd><code>POST</code></dd>
+        <dt>Header / Kopfzeile</dt><dd>Name: <code>Authorization</code><br>Wert: <code>Bearer DEIN_UPLOAD_TOKEN</code><br>Ersetze <code>DEIN_UPLOAD_TOKEN</code> durch deinen Schlüssel. Zwischen <code>Bearer</code> und Schlüssel steht genau ein Leerzeichen.</dd>
+        <dt>Anfragetext / „Haupttext anfordern“</dt><dd><strong>Formular</strong> auswählen.</dd>
+        <dt>Formularfeld hinzufügen</dt><dd>Typ: <strong>Datei</strong><br>Schlüssel: <code>image</code><br>Wert: die Variable <strong>Verbrauchsfoto</strong> aus Schritt 2.</dd>
+      </dl>
+      <p>Wähle die Foto-Variable im Variablenauswahldialog aus; tippe nicht einfach ihren Namen als Text ein. Einen <code>Content-Type</code>-Header musst du nicht setzen – Kurzbefehle erzeugt ihn passend zum Formular.</p>
+      <p>Ohne zusätzliches Monatsfeld verwendet die App automatisch den <strong>letzten abgeschlossenen Monat</strong>, nach Berliner Zeit. Bei einer Erfassung Anfang September gehört das Foto also zu August. Auf der Prüfseite kannst du den Monat ändern.</p>
+    </li>
+    <li>
+      <h2>Prüfseite aus der Antwort öffnen</h2>
+      <p>Speichere die Ausgabe von „Inhalte von URL abrufen“ mit <strong>„Variable festlegen“</strong> als <strong>Upload-Antwort</strong>. Füge dann <strong>„Wörterbuchwert abrufen“</strong> hinzu: Schlüssel <code>review_url</code>, Wörterbuch <strong>Upload-Antwort</strong>.</p>
+      <p>Füge <strong>„Wenn“</strong> hinzu und prüfe, ob der abgerufene Wörterbuchwert <strong>einen Wert hat</strong>. Im Wenn-Zweig ergänzt du die Aktion <strong>„Text“</strong>: zuerst die <strong>Serveradresse ohne Subpath</strong> von oben, unmittelbar dahinter den Wörterbuchwert als Variable. Keine Leerzeichen oder Zeilenumbrüche dazwischen.</p>
+      <pre>Serveradresse + review_url
+→ beispielsweise https://dein-server/utilmanager/uploads/…</pre>
+      <p>Die Serveradresse endet ohne Slash; <code>review_url</code> beginnt mit einem Slash und enthält den Subpath bereits. Füge direkt nach „Text“ die Aktion <strong>„URLs öffnen“</strong> hinzu und verwende diesen Text als Eingabe.</p>
+      <p>Im <strong>Sonst</strong>-Zweig zeigst du mit <strong>„Ergebnis anzeigen“</strong> die Variable <strong>Upload-Antwort</strong> an. So siehst du eine Fehlermeldung, wenn keine Prüfadresse zurückgegeben wird.</p>
+    </li>
+    <li>
+      <h2>Einmal testen und auf dem Home-Bildschirm ablegen</h2>
+      <p>Starte den Kurzbefehl mit der Wiedergabe-Taste. Erlaube bei Nachfrage den Kamera- und Serverzugriff. Melde dich auf der geöffneten Webseite mit deinen normalen Web-Zugangsdaten an.</p>
+      <p>Prüfe <strong>Monat, Zahl und Einheit</strong> am Foto und bestätige anschließend die Buchung. Der Upload allein trägt noch keinen Verbrauch ein. Nach erfolgreicher Übernahme oder Verwerfen löscht die App die serverseitige Bilddatei.</p>
+      <p>Über das Menü beim Namen des Kurzbefehls kannst du <strong>„Zum Home-Bildschirm“</strong> wählen. Danach genügt zum Start ein Tippen auf das Symbol.</p>
+    </li>
+  </ol>
+  <details class="panel guide-detail">
+    <summary>Optional: Verbrauchsmonat bei jedem Start abfragen</summary>
+    <p>Füge vor der Aktion „URL“ eine Aktion <strong>„Nach Eingabe fragen“</strong> ein. Frage: <strong>„Für welchen Verbrauchsmonat? (YYYY-MM)“</strong>, Eingabetyp <strong>Text</strong>. Speichere die Antwort als Variable <strong>Verbrauchsmonat</strong>.</p>
+    <p>Ergänze beim Upload ein zweites Formularfeld vom Typ <strong>Text</strong>: Schlüssel <code>month</code>, Wert die Variable <strong>Verbrauchsmonat</strong>. Beispiel: <code>{{ previous_month }}</code>. Verwende immer Jahr und zweistelligen Monat. Laufende oder zukünftige Monate werden abgelehnt.</p>
+  </details>
+  <details class="panel guide-detail">
+    <summary>Wenn etwas nicht funktioniert</summary>
+    <dl class="shortcut-settings">
+      <dt>Server nicht erreichbar</dt><dd>Öffne die Anwendung zuerst in Safari. Prüfe WLAN/VPN und die Adresse. <code>localhost</code> oder <code>127.0.0.1</code> auf dem iPhone bezeichnet das iPhone selbst.</dd>
+      <dt>401 / Bearer-Token erforderlich</dt><dd>Prüfe den Header <code>Authorization</code> und den Schlüssel aus der Server-<code>.env</code>. Der normale Web-Benutzername gehört nicht in diesen Header.</dd>
+      <dt>400 / Bild fehlt oder ungültig</dt><dd>Das Formularfeld muss exakt <code>image</code> heißen und eine JPEG-Datei aus der Foto-Variable enthalten.</dd>
+      <dt>413 / Datei zu groß</dt><dd>Prüfe die Verkleinerung in Schritt 2. Die App erlaubt maximal 12 MiB pro Anfrage und 25 Megapixel pro Foto.</dd>
+      <dt>409 / Eintrag schon vorhanden</dt><dd>Prüfe „Fotos prüfen“ bzw. den Monatswert in der Tabelle. Ein vorhandener Verbrauch wird nicht automatisch überschrieben.</dd>
+      <dt>Abbruch oder Zeitüberschreitung</dt><dd>Sieh vor einem erneuten Upload in „Fotos prüfen“ nach. Die Aufnahme kann bereits angekommen sein. Eine leere oder mehrdeutige OCR-Erkennung lässt sich auf der Prüfseite manuell korrigieren.</dd>
+    </dl>
+  </details>
+  <p class="hint">Weitere Hilfe bei Apple: <a href="https://support.apple.com/de-de/guide/shortcuts/apd58d46713f/ios">Web-API mit Kurzbefehlen aufrufen</a>.</p>
+</article>
+<script src="{{ url_for('static', filename='shortcut-guide.js') }}" defer></script>
+{% endblock %}

@@ -74,6 +74,23 @@ class AppTest(unittest.TestCase):
         self.assertEqual(self.client.get('/', headers=API_AUTH).status_code, 401)
         self.assertEqual(self.client.get('/', headers=AUTH).status_code, 200)
 
+    def test_iphone_guide_links_work_at_root_and_subpath_without_exposing_token(self):
+        for prefix in ('', '/utilmanager'):
+            with self.subTest(prefix=prefix):
+                app = create_app({**self.app.config, 'APP_BASE_PATH': prefix})
+                client = app.test_client()
+                guide_url = prefix + '/help/iphone-shortcut'
+                self.assertEqual(client.get(guide_url).status_code, 401)
+                listing = client.get(prefix + '/uploads', headers=AUTH)
+                self.assertIn('href="' + guide_url + '"', listing.text)
+                response = client.get(guide_url, headers=AUTH)
+                self.assertEqual(response.status_code, 200)
+                self.assertIn('data-public-path="' + prefix + '/api/uploads"', response.text)
+                self.assertIn('src="' + prefix + '/static/shortcut-guide.js"', response.text)
+                self.assertIn('review_url', response.text)
+                self.assertNotIn(TOKEN, response.text)
+                self.assertNotIn(PASSWORD, response.text)
+
     def test_csrf_required(self):
         response = self.client.post('/setup', headers=AUTH, data={})
         self.assertEqual(response.status_code, 400)

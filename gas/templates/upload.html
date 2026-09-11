@@ -1,6 +1,7 @@
 {% extends 'base.html' %}
 {% block content %}
 <div class="form-page"><h1>Display fotografieren</h1>
+<p><a class="button secondary" href="{{ url_for('iphone_shortcut') }}">iPhone-Kurzbefehl einrichten</a></p>
 <form method="post" enctype="multipart/form-data" class="panel">
   <input type="hidden" name="csrf" value="{{ csrf_token() }}">
   <label>Verbrauchsmonat<input name="month" type="month" value="{{ previous_month }}" max="{{ previous_month }}" required></label>

@@ -198,7 +198,8 @@ Beispielantwort (`201 Created`):
 }
 ```
 
-`review_url` ist relativ zur App-Adresse. Dort wird der Wert geprüft, bei Bedarf
+`review_url` beginnt mit einem Slash und enthält den Subpath bereits. Zum Öffnen
+Schema und Host (gegebenenfalls mit Port) davor setzen. Dort wird der Wert geprüft, bei Bedarf
 korrigiert und gebucht. Mehrere OCR-Kandidaten werden nicht automatisch addiert.
 Ein OCR-Fehler lässt die manuelle Prüfung des Fotos weiterhin zu.
 
@@ -235,12 +236,17 @@ Der API-Token erlaubt keine Buchungen, Änderungen oder Löschungen von Verbrauc
 
 ### Ablauf im iPhone-Kurzbefehl
 
+Die ausführliche Anleitung findest du in der Anwendung unter **„Fotos prüfen“ →
+„iPhone-Kurzbefehl einrichten“**, auch vom Foto-Upload aus erreichbar. Sie enthält
+kopierbare Adressen der geöffneten Installation einschließlich Subpath.
+Den Upload-Token entnimmst du der Server-`.env`; auf der Anleitungsseite wird er nicht angezeigt.
+
 1. Foto aufnehmen oder auswählen.
 2. Bild in JPEG konvertieren, ggf. verkleinern.
 3. Verbrauchsmonat bestimmen und zur Kontrolle anzeigen.
 4. Mit „Inhalte von URL abrufen“ als POST und Formular senden: `image` = Bild,
    `month` = Monat. Header `Authorization` = `Bearer <UPLOAD_TOKEN>`.
-5. `review_url` aus der JSON-Antwort mit der App-Basisadresse kombinieren und
+5. `review_url` aus der JSON-Antwort mit Schema und Host der App kombinieren und
    im Browser öffnen. Dort anmelden und den Messwert bestätigen.
 
 Bei langsamer Verbindung einen Timeout oder `409` nicht als erfolgreiche

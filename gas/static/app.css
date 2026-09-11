@@ -325,7 +325,26 @@ footer {
 .table-scroll {
   position:relative}
 
+.shortcut-guide {max-width:860px;margin:0 auto}
+.shortcut-guide code {overflow-wrap:anywhere;font-size:.92em}
+.shortcut-guide .copy-field {display:flex;gap:10px;align-items:center;margin:-12px 0 20px}
+.shortcut-guide .copy-field input {min-width:0;margin:0;font-size:13px}
+.shortcut-guide .copy-field button {flex-shrink:0;font-size:13px}
+.shortcut-guide [hidden] {display:none}
+.shortcut-steps {list-style:none;counter-reset:steps;padding:0;margin:28px 0}
+.shortcut-steps > li {counter-increment:steps;position:relative;padding:8px 0 18px 48px;border-bottom:1px solid var(--line);margin-bottom:22px}
+.shortcut-steps > li::before {content:counter(steps);position:absolute;left:0;top:6px;display:grid;place-items:center;width:30px;height:30px;border-radius:50%;background:var(--green);color:white;font-weight:650}
+.shortcut-settings {display:grid;grid-template-columns:180px minmax(0,1fr);gap:12px 18px}
+.shortcut-settings dt {font-weight:600}
+.shortcut-settings dd {margin:0;overflow-wrap:anywhere}
+.guide-detail {margin:18px 0}
+.guide-detail summary {font-weight:650}
+
 @media(max-width:760px) {
+.shortcut-guide .copy-field {flex-direction:column;align-items:stretch}
+.shortcut-settings {grid-template-columns:1fr;gap:4px}
+.shortcut-settings dd {margin-bottom:12px}
+.shortcut-steps > li {padding-left:40px}
   .site-header {
   padding:15px 18px;
   align-items:flex-start;
@@ -367,4 +386,3 @@ footer {
 .review .panel {
   order:-1}
 }
-

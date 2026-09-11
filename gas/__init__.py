@@ -356,6 +356,10 @@ def create_app(test_config=None):
             rows = db.execute("SELECT * FROM uploads ORDER BY status='pending' DESC,created_at DESC").fetchall()
             return render_template('uploads.html', uploads=rows)
 
+    @app.get('/help/iphone-shortcut')
+    def iphone_shortcut():
+        return render_template('iphone_shortcut.html')
+
     @app.route('/uploads/new', methods=['GET', 'POST'])
     def web_upload():
         if request.method == 'GET':

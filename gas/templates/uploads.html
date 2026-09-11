@@ -1,6 +1,9 @@
 {% extends 'base.html' %}
 {% block content %}
-<div class="heading-row"><h1>Fotos prüfen</h1><a class="button" href="{{ url_for('web_upload') }}">Foto hochladen</a></div>
+<div class="heading-row"><h1>Fotos prüfen</h1><div class="actions">
+  <a class="button secondary" href="{{ url_for('iphone_shortcut') }}">iPhone-Kurzbefehl einrichten</a>
+  <a class="button" href="{{ url_for('web_upload') }}">Foto hochladen</a>
+</div></div>
 <p>Hochgeladene Fotos verändern den Bestand erst nach deiner Bestätigung. Nach Übernahme oder Verwerfen wird die Bilddatei gelöscht; der Erfassungsverlauf bleibt erhalten.</p>
 {% if uploads %}
 <div class="table-scroll"><table>

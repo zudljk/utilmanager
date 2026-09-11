@@ -1,12 +1,18 @@
 {% extends 'base.html' %}
 {% block content %}
-<a class="back" href="{{ url_for('uploads') }}">← Alle Fotos</a>
-<h1>Verbrauch am Foto prüfen</h1>
+<a class="back" href="{{ url_for('uploads') }}">← Alle Erfassungen</a>
+<h1>{{ 'Verbrauch aus Text prüfen' if upload.source_type == 'text' else 'Verbrauch am Foto prüfen' }}</h1>
 <div class="two-columns review">
-  <div>{% if photo_available %}<img class="display-photo" src="{{ url_for('photo', upload_id=upload.id) }}" alt="Hochgeladenes Foto des Thermendisplays">
+  <div>{% if upload.source_type == 'text' %}
+    <h2>Übertragener iPhone-Text</h2>
+    <p>Bei dieser Erfassung wurde nur Text übertragen. Vergleiche ihn mit deiner Aufnahme oder der Thermenanzeige.</p>
+    <pre>{{ upload.ocr_text }}</pre>
+    {% else %}
+    {% if photo_available %}<img class="display-photo" src="{{ url_for('photo', upload_id=upload.id) }}" alt="Hochgeladenes Foto des Thermendisplays">
     {% elif upload.status != 'pending' %}<p class="panel">Das Foto wird nach Abschluss der Prüfung gelöscht. Die Erfassungsdaten bleiben erhalten.</p>
     {% else %}<p class="warning">Das Foto ist nicht verfügbar. Bitte den Wert anhand deiner eigenen Aufnahme prüfen.</p>{% endif %}
     <details><summary>Erkannter Text</summary><pre>{{ upload.ocr_text or 'Kein Text erkannt.' }}</pre></details>
+    {% endif %}
     {% if upload.status == 'pending' and photo_available %}
     <form method="post" action="{{ url_for('retry_ocr', upload_id=upload.id) }}" class="reject-form">
       <input type="hidden" name="csrf" value="{{ csrf_token() }}">
@@ -17,7 +23,8 @@
   </div>
   <section class="panel">
   {% if upload.status == 'pending' %}
-    <p>Prüfe <strong>Zahl, Einheit und Monat</strong> am Foto. Die Erkennung ist ein Vorschlag. Nach erfolgreicher Übernahme oder Verwerfen wird das Foto gelöscht.</p>
+    {% if upload.source_type == 'text' %}<p>Prüfe <strong>Zahl, Einheit und Monat</strong>. Erst deine Bestätigung bucht den Verbrauch. Der übertragene Text bleibt als Erfassungsnachweis erhalten.</p>
+    {% else %}<p>Prüfe <strong>Zahl, Einheit und Monat</strong> am Foto. Die Erkennung ist ein Vorschlag. Nach erfolgreicher Übernahme oder Verwerfen wird das Foto gelöscht.</p>{% endif %}
     {% if upload.warning %}<p class="warning">{{ upload.warning }}</p>{% endif %}
     {% if candidates|length > 1 %}<p>Mögliche Werte in kWh: {{ candidates|join(', ') }}. Wähle den zum Monatsverbrauch gehörenden Wert.</p>{% endif %}
     <form method="post">
@@ -29,10 +36,10 @@
     </form>
     <form method="post" class="reject-form">
       <input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="action" value="reject">
-      <button class="secondary" type="submit">Foto verwerfen</button>
+      <button class="secondary" type="submit">{{ 'Textentwurf verwerfen' if upload.source_type == 'text' else 'Foto verwerfen' }}</button>
     </form>
   {% else %}
-    <h2>{{ 'Verbrauch gebucht' if upload.status == 'confirmed' else 'Foto verworfen' }}</h2>
+    <h2>{{ 'Verbrauch gebucht' if upload.status == 'confirmed' else 'Entwurf verworfen' }}</h2>
     <p>Monat: {{ upload.month|month_de }}.</p>
     {% if upload.status == 'confirmed' %}<a href="{{ url_for('consumption', month=upload.month) }}">Gespeicherten Verbrauch ansehen</a>{% endif %}
   {% endif %}

@@ -1,0 +1,73 @@
+{% extends 'base.html' %}
+{% block title %}iPhone-Kurzbefehl mit Texterkennung{% endblock %}
+{% block content %}
+<article class="shortcut-guide">
+  <a class="back" href="{{ url_for('iphone_shortcut') }}">← Zur Anleitung für den Foto-Upload</a>
+  <p class="eyebrow">Alternative Erfassung</p>
+  <h1>Text auf dem iPhone erkennen</h1>
+  <p class="intro">Foto aufnehmen → Text extrahieren → Text anzeigen → Text senden.</p>
+  <p>Das iPhone übernimmt die Texterkennung. Der Server erhält nur den Text und schlägt daraus einen Verbrauchswert vor. Anschließend bestätigst du Messwert und Monat auf der Webseite.</p>
+  <section class="panel" aria-labelledby="connection-title">
+    <h2 id="connection-title">Deine Verbindungsdaten</h2>
+    <p>Öffne diese Seite über die Serveradresse, die dein iPhone im Heim-WLAN oder über VPN erreicht.</p>
+    <p id="local-address-warning" class="warning" hidden>Diese lokale Adresse bezeichnet auf dem iPhone das iPhone selbst. Öffne die Anwendung über ihre im Heimnetz erreichbare Serveradresse, bevor du die URL kopierst.</p>
+    <noscript><p>Für vollständige kopierbare URLs bitte JavaScript aktivieren. Alternativ Schema, Host und gegebenenfalls Port aus der Browseradresse vor den Upload-Pfad setzen.</p></noscript>
+    <label for="shortcut-upload-url">Text-Upload-Adresse</label>
+    <div class="copy-field">
+      <input id="shortcut-upload-url" readonly value="{{ url_for('text_upload') }}" data-public-path="{{ url_for('text_upload') }}" spellcheck="false">
+      <button type="button" class="secondary" data-copy="shortcut-upload-url" hidden>Adresse kopieren</button>
+    </div>
+    <label for="shortcut-origin">Serveradresse für die Antwort (ohne Subpath)</label>
+    <div class="copy-field">
+      <input id="shortcut-origin" readonly value="Schema und Host aus der Browseradresse" spellcheck="false">
+      <button type="button" class="secondary" data-copy="shortcut-origin" hidden>Serveradresse kopieren</button>
+    </div>
+    <p id="copy-status" class="hint" role="status" aria-live="polite"></p>
+    <p>Du brauchst außerdem den <code>UPLOAD_TOKEN</code> aus der Server-<code>.env</code>. Verwende ihn im Kurzbefehl nach <code>Bearer</code> mit genau einem Leerzeichen. Entferne den Schlüssel, bevor du den Kurzbefehl mit anderen teilst.</p>
+  </section>
+  <p>Lege in der App <strong>Kurzbefehle</strong> über <strong>+</strong> einen Kurzbefehl namens <strong>Gasverbrauch als Text</strong> an. Je nach iOS-Version können die Aktionsnamen leicht abweichen.</p>
+  <ol class="shortcut-steps">
+    <li><h2>Foto aufnehmen</h2>
+      <p>Füge <strong>„Foto aufnehmen“</strong> hinzu: ein Foto mit der Rückkamera, mit Kameravorschau. Fotografiere die Anzeige des gewünschten abgeschlossenen Monats.</p>
+    </li>
+    <li><h2>Text aus dem Foto extrahieren</h2>
+      <p>Füge <strong>„Text aus Bild extrahieren“</strong> hinzu und wähle das aufgenommene Foto als Eingabe. Speichere das Ergebnis mit <strong>„Variable festlegen“</strong> als <strong>Verbrauchstext</strong>.</p>
+      <p>Übernimm den vollständigen Text einschließlich der Zeilenumbrüche. Diese helfen der Anwendung, den ausgewählten Monatswert vom kleineren Spaltenwert zu unterscheiden.</p>
+    </li>
+    <li><h2>Text anzeigen</h2>
+      <p>Füge <strong>„Ergebnis anzeigen“</strong> hinzu und wähle die Variable <strong>Verbrauchstext</strong>. Prüfe, ob der große Messwert aus dem Foto im Text vorkommt, beispielsweise <code>195kWh</code>.</p>
+      <p>Der Kurzbefehl sendet anschließend dieselbe gespeicherte Variable. Falls der Text unbrauchbar ist, brich den Kurzbefehl ab und fotografiere erneut.</p>
+    </li>
+    <li><h2>Text an die URL senden</h2>
+      <p>Füge <strong>„URL“</strong> hinzu und trage die vollständige <strong>Text-Upload-Adresse</strong> von oben ein. Danach folgt <strong>„Inhalte von URL abrufen“</strong> mit dieser URL.</p>
+      <dl class="shortcut-settings">
+        <dt>Methode</dt><dd><code>POST</code></dd>
+        <dt>Header / Kopfzeile</dt><dd>Name: <code>Authorization</code><br>Wert: <code>Bearer DEIN_UPLOAD_TOKEN</code></dd>
+        <dt>Anfragetext / „Haupttext anfordern“</dt><dd><strong>Formular</strong> auswählen.</dd>
+        <dt>Formularfeld</dt><dd>Typ: <strong>Text</strong><br>Schlüssel: <code>text</code><br>Wert: die Variable <strong>Verbrauchstext</strong> aus Schritt 2.</dd>
+      </dl>
+      <p>Wähle die Variable im Variablenauswahldialog aus; schreibe ihren Namen nicht als wörtlichen Text. Einen eigenen <code>Content-Type</code>-Header brauchst du beim Formular nicht.</p>
+      <p>Ohne <code>month</code> gilt automatisch der letzte abgeschlossene Monat nach Berliner Zeit. Der möglicherweise falsch erkannte Monatsname im Text wird nicht als Datum verwendet.</p>
+    </li>
+  </ol>
+  <section class="panel">
+    <h2>Entwurf prüfen und bestätigen</h2>
+    <p>Öffne <a href="{{ url_for('uploads') }}">„Fotos prüfen“</a>. Der neue Eintrag hat die Quelle <strong>iPhone-Text</strong>. Dort siehst du den übertragenen Text und den vorgeschlagenen Wert. Prüfe <strong>Zahl, Einheit und Monat</strong> und bestätige erst dann die Buchung.</p>
+    <p>Ein Text wie <code>195kWh</code> in einer Zeile wird bevorzugt. <code>94</code> und <code>KWh</code> in getrennten Zeilen werden nicht zum Monatswert zusammengesetzt. Bei fehlender oder unsicherer Erkennung kannst du den Wert manuell eintragen.</p>
+    <p>Es wird kein Foto hochgeladen; der kleine Texteintrag bleibt als Erfassungsnachweis erhalten. Fehlgeschlagene Anfragen findest du unter <strong>„Fehlgeschlagene Uploads“</strong>.</p>
+  </section>
+  <details class="panel guide-detail">
+    <summary>Optional: Prüfseite automatisch öffnen</summary>
+    <p>Speichere die Ausgabe von „Inhalte von URL abrufen“ als Variable <strong>Upload-Antwort</strong>. Füge <strong>„Wörterbuchwert abrufen“</strong> hinzu: Schlüssel <code>review_url</code>, Wörterbuch <strong>Upload-Antwort</strong>.</p>
+    <p>Mit <strong>„Wenn“</strong> prüfst du, ob der Wörterbuchwert einen Wert hat. Im Wenn-Zweig folgt <strong>„Text“</strong>: die Serveradresse ohne Subpath von oben und unmittelbar dahinter der Wörterbuchwert als Variable. Keine Leerzeichen oder Zeilenumbrüche dazwischen. Danach <strong>„URLs öffnen“</strong> mit diesem Text.</p>
+    <p><code>review_url</code> enthält den führenden Slash und einen vorhandenen Subpath bereits. Im Sonst-Zweig zeigst du die Variable <strong>Upload-Antwort</strong> mit <strong>„Ergebnis anzeigen“</strong> an.</p>
+  </details>
+  <details class="panel guide-detail">
+    <summary>Optional: Verbrauchsmonat abfragen</summary>
+    <p>Füge vor „URL“ die Aktion <strong>„Nach Eingabe fragen“</strong> mit Eingabetyp <strong>Text</strong> und der Frage <strong>„Verbrauchsmonat (YYYY-MM)?“</strong> hinzu. Speichere die Antwort als <strong>Verbrauchsmonat</strong>.</p>
+    <p>Ergänze ein zweites Formularfeld vom Typ <strong>Text</strong>: Schlüssel <code>month</code>, Wert die Variable <strong>Verbrauchsmonat</strong>. Beispiel: <code>{{ previous_month }}</code>.</p>
+  </details>
+  <p class="hint">Weitere Hilfe bei Apple: <a href="https://support.apple.com/de-de/guide/shortcuts/apd58d46713f/ios">Web-API mit Kurzbefehlen aufrufen</a>.</p>
+</article>
+<script src="{{ url_for('static', filename='shortcut-guide.js') }}" defer></script>
+{% endblock %}

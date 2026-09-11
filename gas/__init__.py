@@ -22,6 +22,7 @@ from .domain import (ValidationError, formatted, ledger, month_key, number,
                      previous_month, quantity, validate_period)
 from .importer import apply_import, read_ods
 from .ocr import normalize_image, recognize
+from .text_readings import MAX_TEXT_LENGTH, MAX_TEXT_REQUEST, extract_text_reading
 from .photos import photo_lock
 from .mount import BasePathMiddleware, normalize_base_path
 
@@ -73,6 +74,8 @@ def create_app(test_config=None):
         return wrapped
 
     def remove_photo(filename):
+        if not filename:
+            return True  # Text-only drafts never own a photo file.
         try:
             (photo_dir / filename).unlink(missing_ok=True)
             return True
@@ -103,6 +106,8 @@ def create_app(test_config=None):
     @app.before_request
     def authenticate():
         g.upload_stage = 'Anmeldung und Anfrageprüfung'
+        if request.path == '/api/uploads/text':
+            request.max_content_length = min(app.config['MAX_CONTENT_LENGTH'], MAX_TEXT_REQUEST)
         if request.path == '/healthz' and request.method == 'GET':
             return None
         if request.path.startswith('/api/'):
@@ -121,7 +126,7 @@ def create_app(test_config=None):
 
     @app.after_request
     def headers(response):
-        if request.method == 'POST' and request.path in ('/api/uploads', '/uploads/new') and response.status_code >= 400:
+        if request.method == 'POST' and request.path in ('/api/uploads', '/api/uploads/text', '/uploads/new') and response.status_code >= 400:
             record_upload_failure(response)
         response.headers['X-Content-Type-Options'] = 'nosniff'
         response.headers['X-Frame-Options'] = 'DENY'
@@ -140,7 +145,7 @@ def create_app(test_config=None):
     def record_upload_failure(response):
         reason = diagnostic_text(getattr(g, 'upload_error', 'Interner Serverfehler. Details stehen im Serverlog.'))
         stage = getattr(g, 'upload_stage', 'Anfrageprüfung')
-        source = 'iPhone / API' if request.path == '/api/uploads' else 'Webformular'
+        source = {'/api/uploads': 'iPhone / API', '/api/uploads/text': 'iPhone / Text'}.get(request.path, 'Webformular')
         # Do not access request.form/files here: parsing may already have failed,
         # or the request may have been rejected before reading its body (401/413).
         fields = getattr(g, 'upload_fields', None)
@@ -156,7 +161,7 @@ def create_app(test_config=None):
         except (sqlite3.Error, OSError):
             # A full/unavailable database must not replace the original error.
             app.logger.exception('Upload-Fehlerprotokoll konnte nicht gespeichert werden.')
-        app.logger.warning('Foto-Upload fehlgeschlagen: Versuch=%s Quelle=%s HTTP=%s Schritt=%s Grund=%s',
+        app.logger.warning('Upload fehlgeschlagen: Versuch=%s Quelle=%s HTTP=%s Schritt=%s Grund=%s',
                            failure_id or '-', source, response.status_code, stage, reason)
         if failure_id is not None:
             response.headers['X-Upload-Failure-ID'] = str(failure_id)
@@ -172,7 +177,8 @@ def create_app(test_config=None):
     def http_error(exc):
         message = exc.description
         if exc.code == 413:
-            message = 'Anfrage zu groß. Maximal 12 MiB insgesamt und 128 KiB für Text-Formularfelder.'
+            message = ('Text-Upload zu groß. Maximal 64 KiB pro Anfrage.' if request.path == '/api/uploads/text'
+                       else 'Anfrage zu groß. Maximal 12 MiB insgesamt und 128 KiB für Text-Formularfelder.')
         elif exc.code == 400 and exc.description == BadRequest.description:
             message = 'Die Anfrage ist unvollständig oder ungültig. Bitte das Formularformat prüfen.'
         elif exc.code == 500:
@@ -350,7 +356,8 @@ def create_app(test_config=None):
 
     def upload_payload(row):
         return dict(id=row['id'], month=row['month'], status=row['status'],
-                    photo_available=row['status'] == 'pending' and (photo_dir / row['filename']).is_file(),
+                    source_type=row['source_type'],
+                    photo_available=bool(row['filename']) and row['status'] == 'pending' and (photo_dir / row['filename']).is_file(),
                     candidates_kwh=json.loads(row['candidates']), warning=row['warning'],
                     review_url=url_for('review', upload_id=row['id']))
 
@@ -401,6 +408,52 @@ def create_app(test_config=None):
             raise
         return jsonify(upload_payload(row)), 201
 
+    @app.post('/api/uploads/text')
+    def text_upload():
+        g.upload_stage = 'OCR-Text lesen'
+        if request.mimetype == 'text/plain':
+            try:
+                text = request.get_data(cache=False).decode('utf-8-sig')
+            except UnicodeDecodeError:
+                raise ValidationError('Bitte den Text als UTF-8 senden.')
+            raw_month = request.args.get('month')
+        elif request.mimetype in ('multipart/form-data', 'application/x-www-form-urlencoded'):
+            g.upload_fields = {'text': [diagnostic_text(name, 80) for name in list(request.form)[:20]],
+                               'files': [diagnostic_text(name, 80) for name in list(request.files)[:20]]}
+            if request.files:
+                raise ValidationError('Dieser Endpoint erwartet das Textfeld text, keine Datei.')
+            text = request.form.get('text', '')
+            raw_month = request.form.get('month')
+        else:
+            abort(415, 'Bitte text/plain (UTF-8) oder ein Formular mit dem Textfeld text senden.')
+        text = text.replace('\r\n', '\n').replace('\r', '\n')
+        if not text.strip() or '\x00' in text:
+            raise ValidationError('Bitte einen nicht leeren OCR-Text ohne Nullzeichen senden.')
+        if len(text) > MAX_TEXT_LENGTH:
+            raise ValidationError('Der OCR-Text darf höchstens 16000 Zeichen enthalten.')
+        g.upload_stage = 'Verbrauchsmonat und Tank prüfen'
+        with db_context() as db:
+            month = validate_period(raw_month or previous_month(today()), configured(db), today())
+        digest = hashlib.sha256(b'text\0' + text.encode('utf-8')).hexdigest()
+        key = request.headers.get('Idempotency-Key') or None
+        if key and (len(key) > 128 or not key.isascii()):
+            raise ValidationError('Idempotency-Key muss aus höchstens 128 ASCII-Zeichen bestehen.')
+        g.upload_stage = 'Doppelte Uploads prüfen'
+        with db_context() as db:
+            existing = db.execute('SELECT * FROM uploads WHERE sha256=? OR request_key=?', (digest, key)).fetchall()
+            if existing:
+                if any(row['sha256'] != digest or row['month'] != month or row['source_type'] != 'text' for row in existing):
+                    abort(409, 'Text oder Idempotency-Key wurde bereits für einen anderen Upload verwendet.')
+                return jsonify(upload_payload(existing[0])), 200
+        g.upload_stage = 'OCR-Text auswerten'
+        candidates, warning = extract_text_reading(text)
+        upload_id = uuid.uuid4().hex
+        with db_context() as db:
+            db.execute("INSERT INTO uploads(id,sha256,request_key,month,filename,ocr_text,candidates,warning,source_type) VALUES(?,?,?,?,'',?,?,?,'text')",
+                       (upload_id, digest, key, month, text, json.dumps(candidates), warning))
+            row = db.execute('SELECT * FROM uploads WHERE id=?', (upload_id,)).fetchone()
+        return jsonify(upload_payload(row)), 201
+
     @app.get('/api/uploads/<upload_id>')
     def upload_status(upload_id):
         with db_context() as db:
@@ -422,6 +475,10 @@ def create_app(test_config=None):
     def iphone_shortcut():
         return render_template('iphone_shortcut.html')
 
+    @app.get('/help/iphone-text-shortcut')
+    def iphone_text_shortcut():
+        return render_template('iphone_text_shortcut.html')
+
     @app.route('/uploads/new', methods=['GET', 'POST'])
     def web_upload():
         if request.method == 'GET':
@@ -441,7 +498,7 @@ def create_app(test_config=None):
             if request.method == 'GET':
                 values = json.loads(row['candidates'])
                 return render_template('review.html', upload=row, candidates=values,
-                                       photo_available=row['status'] == 'pending' and (photo_dir / row['filename']).is_file(),
+                                       photo_available=bool(row['filename']) and row['status'] == 'pending' and (photo_dir / row['filename']).is_file(),
                                        candidate=values[0] if len(values) == 1 else '')
             if row['status'] != 'pending':
                 abort(409, 'Dieses Foto wurde bereits bearbeitet.')
@@ -463,7 +520,7 @@ def create_app(test_config=None):
         # Commit the booking first. Any validation or database failure above
         # preserves the photo. Backups hold the same cross-process lock.
         removed = remove_photo(row['filename'])
-        flash('Verbrauch bestätigt und gebucht.' if action == 'confirm' else 'Foto verworfen; kein Verbrauch gebucht.')
+        flash('Verbrauch bestätigt und gebucht.' if action == 'confirm' else 'Entwurf verworfen; kein Verbrauch gebucht.')
         if not removed:
             flash('Das Foto konnte noch nicht gelöscht werden. Die Bereinigung wird beim nächsten App-Start erneut versucht.')
         return redirect(url_for('uploads'))
@@ -477,6 +534,8 @@ def create_app(test_config=None):
                 abort(404)
             if row['status'] != 'pending':
                 abort(409, 'Dieses Foto wurde bereits bearbeitet.')
+            if row['source_type'] == 'text':
+                abort(409, 'Dieser Entwurf enthält nur Text; eine Foto-Texterkennung ist nicht möglich.')
             path = photo_dir / row['filename']
             if not path.is_file():
                 abort(410, 'Das Foto ist nicht mehr verfügbar.')
@@ -495,6 +554,8 @@ def create_app(test_config=None):
             row = db.execute('SELECT filename,status FROM uploads WHERE id=?', (upload_id,)).fetchone()
             if not row:
                 abort(404)
+            if not row['filename']:
+                abort(410, 'Für diesen Textentwurf wurde kein Foto hochgeladen.')
             if row['status'] != 'pending':
                 abort(410, 'Das Foto wurde nach Abschluss der Prüfung gelöscht.')
             return send_from_directory(photo_dir, row['filename'], mimetype='image/jpeg')
@@ -533,7 +594,7 @@ def create_app(test_config=None):
         target.mkdir(parents=True, exist_ok=False)
         with db_context() as source, closing(sqlite3.connect(target / 'gas.sqlite3')) as dest:
             source.backup(dest)
-            names = [r[0] for r in dest.execute("SELECT filename FROM uploads WHERE status='pending'")]
+            names = [r[0] for r in dest.execute("SELECT filename FROM uploads WHERE status='pending' AND filename != ''")]
         (target / 'photos').mkdir()
         for name in names:
             shutil.copy2(photo_dir / name, target / 'photos' / name)

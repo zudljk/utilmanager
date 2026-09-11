@@ -12,7 +12,8 @@ CREATE TABLE IF NOT EXISTS uploads (
  month TEXT NOT NULL, filename TEXT NOT NULL, ocr_text TEXT NOT NULL,
  candidates TEXT NOT NULL, warning TEXT NOT NULL,
  status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','confirmed','rejected')),
- created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+ created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ source_type TEXT NOT NULL DEFAULT 'photo' CHECK(source_type IN ('photo','text'))
 );
 CREATE TABLE IF NOT EXISTS consumption (
  month TEXT PRIMARY KEY, kwh TEXT NOT NULL, note TEXT NOT NULL DEFAULT '',
@@ -43,7 +44,6 @@ CREATE TABLE IF NOT EXISTS upload_failures (
  stage TEXT NOT NULL, content_type TEXT NOT NULL, content_length INTEGER,
  fields_json TEXT NOT NULL
 );
-PRAGMA user_version=2;
 """
 
 
@@ -58,10 +58,13 @@ def connect(path):
 def initialize(path):
     with connection(path) as db:
         version = db.execute('PRAGMA user_version').fetchone()[0]
-        if version not in (0, 1, 2):
+        if version not in (0, 1, 2, 3):
             raise RuntimeError(f'Unbekannte Datenbankversion: {version}')
         db.execute('PRAGMA journal_mode=WAL')
         db.executescript(SCHEMA)
+        if 'source_type' not in {row['name'] for row in db.execute('PRAGMA table_info(uploads)')}:
+            db.execute("ALTER TABLE uploads ADD COLUMN source_type TEXT NOT NULL DEFAULT 'photo' CHECK(source_type IN ('photo','text'))")
+        db.execute('PRAGMA user_version=3')
 
 
 @contextmanager

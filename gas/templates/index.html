@@ -11,7 +11,7 @@
 {% if last_complete %}
 <p class="balance">Bestand zum Ende von <strong>{{ last_complete.month|month_de }}</strong>: <strong>{{ last_complete.rest|num(2) }} l</strong> ({{ last_complete.fill|num(1) }} %). Berücksichtigt alle bis dahin vollständig erfassten Monate.</p>
 {% else %}<p class="balance">Anfangsbestand: {{ settings.opening_liters|num(2) }} l vor {{ settings.start_month|month_de }}. Noch kein lückenloser Monatsabschluss vorhanden.</p>{% endif %}
-{% if pending %}<p class="notice"><a href="{{ url_for('uploads') }}">{{ pending }} Foto(s) warten auf Prüfung.</a></p>{% endif %}
+{% if pending %}<p class="notice"><a href="{{ url_for('uploads') }}">{{ pending }} Erfassung(en) warten auf Prüfung.</a></p>{% endif %}
 <div class="table-toolbar">
   <form method="get" class="year-filter">
     <label for="year">Jahr</label>

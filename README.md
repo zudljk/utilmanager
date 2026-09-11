@@ -297,6 +297,62 @@ Den Upload-Token entnimmst du der Server-`.env`; auf der Anleitungsseite wird er
 Bei langsamer Verbindung einen Timeout oder `409` nicht als erfolgreiche
 Buchung interpretieren; die Liste „Fotos prüfen“ zeigt eingegangene Aufnahmen.
 
+## Alternative: Text vom iPhone senden
+
+Die zweite Anleitung steht unter **„Fotos prüfen“ → „iPhone-Kurzbefehl einrichten“
+→ „Alternative: Text auf dem iPhone erkennen“**. Sie erklärt diese Reihenfolge:
+
+1. Foto aufnehmen.
+2. „Text aus Bild extrahieren“ und das Ergebnis als Variable `Verbrauchstext` speichern.
+3. `Verbrauchstext` mit „Ergebnis anzeigen“ anzeigen.
+4. „Inhalte von URL abrufen“: `POST`, Header `Authorization: Bearer <UPLOAD_TOKEN>`,
+   Anfragetext **Formular**, Feldtyp **Text**, Schlüssel `text`, Wert die Variable
+   `Verbrauchstext`. Optional ein Textfeld `month` im Format `YYYY-MM` ergänzen.
+
+Endpoint: **`POST /api/uploads/text`**, einschließlich eines konfigurierten
+Subpaths. Er akzeptiert ein URL-encodiertes oder Multipart-Formular mit `text`
+und optional `month`, alternativ den OCR-Text direkt als UTF-8-Body mit
+`Content-Type: text/plain`. Beim direkten Text-Body ist `month` ein optionaler
+Query-Parameter. JSON und Dateianhänge werden nicht angenommen.
+
+Beispiel mit einer UTF-8-Textdatei und explizitem Verbrauchsmonat:
+
+```sh
+curl --fail-with-body \
+  -H "Authorization: Bearer $UPLOAD_TOKEN" \
+  -H 'Content-Type: text/plain; charset=utf-8' \
+  --data-binary @verbrauch.txt \
+  'https://dein-server/utilmanager/api/uploads/text?month=2026-08'
+```
+
+Die Anfrage darf höchstens **64 KiB**, der Text höchstens **16.000 Zeichen**
+umfassen. Zeilenumbrüche werden bewahrt (CRLF wird zu LF vereinheitlicht).
+Ohne `month` gilt der letzte abgeschlossene Monat nach Berliner Zeit. Erkannte
+Monatsnamen wie „August“ oder „Augusi“ werden nicht als Datum übernommen.
+
+Die Auswertung erwartet die Überschrift „Gasverbrauch“ und bevorzugt einen
+Wert mit `kWh` in derselben Zeile, z. B. `195kWh`. Kleine Abweichungen wie `kWn`
+werden bei einem isolierten Textblock mit Warnung toleriert. Eine alleinstehende
+Zahl ohne Einheit kann nur zwischen der Monatsübersicht und dem nachfolgenden
+Spaltenwert als unsicherer Vorschlag dienen. `94` und `KWh` auf getrennten Zeilen
+werden **nicht zusammengesetzt**. Mehrere Kandidaten bleiben zur manuellen
+Auswahl stehen; ohne passenden Kandidaten bleibt das Wertefeld leer.
+
+Ein angenommener Text erzeugt einen Entwurf (`201`), auch wenn kein eindeutiger
+Wert erkannt wurde. Die Antwort enthält wie beim Foto-Upload `id`, `month`,
+`status`, `candidates_kwh`, `warning`, `review_url` und außerdem
+`source_type: "text"` sowie `photo_available: false`. Erst die Bestätigung auf
+der Prüfseite bucht den Verbrauch. Der vollständige OCR-Text ist dort sichtbar
+und bleibt nach Bestätigung oder Verwerfen als kleiner Erfassungsnachweis erhalten.
+Es werden weder Bilddateien gespeichert noch Tesseract aufgerufen.
+
+Identische Texte mit demselben Monat liefern den bestehenden Entwurf (`200`).
+Die Prüfung erfolgt anhand des Text-Hashes und optional `Idempotency-Key`;
+abweichender Inhalt oder Monat bei wiederverwendetem Schlüssel führt zu `409`.
+Fehlerhafte Text-Anfragen stehen ebenfalls unter „Fehlgeschlagene Uploads“.
+Die vorhandene SQLite-Datenbank wird beim Start automatisch erweitert;
+Backups enthalten auch die Textentwürfe.
+
 ## Backup und Wiederherstellung
 
 Das Volume ist Persistenz, kein Backup. Ein laufendes SQLite-WAL-Databasefile

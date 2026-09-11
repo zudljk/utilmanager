@@ -369,7 +369,7 @@ class AppTest(unittest.TestCase):
         with self.assertLogs(app.logger, level='WARNING'):
             app.test_client().post('/api/uploads')
         with connection(self.path) as db:
-            self.assertEqual(db.execute('PRAGMA user_version').fetchone()[0], 2)
+            self.assertEqual(db.execute('PRAGMA user_version').fetchone()[0], 3)
             self.assertEqual(db.execute('SELECT kwh FROM consumption').fetchone()[0], '657')
             self.assertEqual(db.execute('SELECT COUNT(*) FROM upload_failures').fetchone()[0], 1)
 

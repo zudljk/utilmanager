@@ -4,7 +4,7 @@
   <a class="button secondary" href="{{ url_for('iphone_shortcut') }}">iPhone-Kurzbefehl einrichten</a>
   <a class="button" href="{{ url_for('web_upload') }}">Foto hochladen</a>
 </div></div>
-<p>Hochgeladene Fotos verändern den Bestand erst nach deiner Bestätigung. Nach Übernahme oder Verwerfen wird die Bilddatei gelöscht; der Erfassungsverlauf bleibt erhalten.</p>
+<p>Fotos und iPhone-Texte verändern den Bestand erst nach deiner Bestätigung. Nach Übernahme oder Verwerfen wird eine vorhandene Bilddatei gelöscht; der Erfassungsverlauf bleibt erhalten.</p>
 <section class="upload-failures" aria-labelledby="failures-title">
 <h2 id="failures-title">Fehlgeschlagene Uploads{% if failures %} ({{ failures|length }}){% endif %}</h2>
 <p class="hint">Hier stehen die letzten 100 fehlgeschlagenen Upload-Versuche, die die Anwendung erreicht haben. Gespeichert werden nur Fehlerangaben, keine zusätzlichen Fotos. Ältere Fehler werden automatisch entfernt.</p>
@@ -27,15 +27,16 @@
 </details>
 {% else %}<p>Noch keine fehlgeschlagenen Uploads protokolliert.</p>{% endfor %}
 </section>
-<h2>Erfasste Fotos</h2>
+<h2>Erfasste Fotos und Texte</h2>
 {% if uploads %}
 <div class="table-scroll"><table>
-<thead><tr><th>Verbrauchsmonat</th><th>Eingang (UTC)</th><th>Status</th><th>Foto</th></tr></thead>
+<thead><tr><th>Verbrauchsmonat</th><th>Eingang (UTC)</th><th>Quelle</th><th>Status</th><th>Prüfung</th></tr></thead>
 <tbody>{% for u in uploads %}<tr>
 <td>{{ u.month|month_de }}</td><td>{{ u.created_at }}</td>
+<td>{{ 'iPhone-Text' if u.source_type == 'text' else 'Foto / Tesseract' }}</td>
 <td>{{ {'pending':'Prüfung erforderlich', 'confirmed':'Gebucht', 'rejected':'Verworfen'}[u.status] }}</td>
 <td><a href="{{ url_for('review', upload_id=u.id) }}">{{ 'Prüfen' if u.status == 'pending' else 'Ansehen' }}</a></td>
 </tr>{% endfor %}</tbody>
 </table></div>
-{% else %}<div class="panel"><p>Noch keine Fotos vorhanden. Du kannst ein Foto hier oder über den iPhone-Kurzbefehl hochladen.</p></div>{% endif %}
+{% else %}<div class="panel"><p>Noch keine Erfassungen vorhanden. Du kannst ein Foto hier oder einen Text über den iPhone-Kurzbefehl hochladen.</p></div>{% endif %}
 {% endblock %}

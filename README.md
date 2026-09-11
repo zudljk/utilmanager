@@ -203,13 +203,19 @@ Schema und Host (gegebenenfalls mit Port) davor setzen. Dort wird der Wert gepr�
 korrigiert und gebucht. Mehrere OCR-Kandidaten werden nicht automatisch addiert.
 Ein OCR-Fehler lässt die manuelle Prüfung des Fotos weiterhin zu.
 
-Die OCR liest zunächst das Originalbild. Bei dunklen Displays oder fehlendem
-kWh-Wert folgen zwei Schwarz-Weiß-Varianten, die helle Schrift isolieren.
-Eng benachbarte, gleich große Ziffern werden anhand der Tesseract-Positionen
-zusammengeführt (z. B. `1 9 5` → `195`). Verschiedene erkannte kWh-Werte bleiben
-getrennte Kandidaten; sie werden weder addiert noch automatisch einem Monat
-zugeordnet. Der Monat stammt weiterhin aus dem Upload-Feld `month` bzw. aus
-der Vormonatsvorgabe und muss am Foto geprüft werden.
+Bei dunklen Thermendisplays sucht die Bildanalyse zuerst die große helle
+Zifferngruppe in der Bildmitte. Nur dieser Ausschnitt wird als Zahl gelesen;
+die kleinen Verbrauchswerte in den Monatsspalten bleiben außerhalb der OCR.
+Eine Graustufen- und eine Schwarz-Weiß-Variante müssen denselben Wert liefern. Ist der große Wert
+nicht eindeutig lokalisierbar oder lesbar, bleibt der Vorschlag leer – es gibt
+keinen Rückgriff auf einen kleineren Spaltenwert. Bitte das Display möglichst
+gerade, mittig und bildfüllend fotografieren. Stark abweichende Anordnungen oder
+Aufnahmewinkel können eine manuelle Eingabe erfordern.
+
+Für helle Vorlagen bleibt die bisherige Texterkennung verfügbar. Eng benachbarte,
+gleich große Ziffern werden anhand der Tesseract-Positionen zusammengeführt
+(z. B. `1 9 5` → `195`). Der Monat stammt weiterhin aus dem Upload-Feld `month`
+bzw. aus der Vormonatsvorgabe und muss am Foto geprüft werden.
 
 Unter **„Erkannter Text“** stehen die Ergebnisse der einzelnen OCR-Durchläufe.
 Die zusätzliche Bildaufbereitung verwendet nur temporäre Dateien, die direkt

@@ -10,6 +10,7 @@ from time import monotonic
 from PIL import Image, ImageOps, UnidentifiedImageError
 
 from .domain import ValidationError
+from .display import central_digits
 
 
 def normalize_image(data):
@@ -75,6 +76,48 @@ def text_from_tsv(data):
     return '\n'.join(' '.join(word['text'] for word in line) for line in lines.values())[:16000]
 
 
+def recognize_display(gray, deadline, box=None):
+    box = box if box is not None else central_digits(gray)
+    if box is None:
+        return ('[Displayauswahl]\nKein eindeutig abgegrenzter großer Messwert in der Bildmitte gefunden.', [],
+                'Der große Monatswert konnte nicht sicher lokalisiert werden. Bitte den Wert manuell eintragen oder das Display näher und gerade fotografieren. Kleine Spaltenwerte werden nicht übernommen.')
+    crop = gray.crop(box)
+    # Normalize exposure only inside the selected region, not against the chart.
+    crop = ImageOps.autocontrast(crop)
+    crop = crop.resize((max(1, round(crop.width * 120 / crop.height)), 120))
+    variants = [('Invertierte Graustufen', ImageOps.invert(crop)),
+                ('Schwarz-Weiß, Schwelle 170', crop.point(lambda pixel: 0 if pixel > 170 else 255))]
+    readings = []
+    failed = False
+    with TemporaryDirectory(prefix='utilmanager-ocr-') as directory:
+        for label, prepared in variants:
+            remaining = deadline - monotonic()
+            if remaining <= 0:
+                failed = True
+                break
+            prepared = ImageOps.expand(prepared, border=max(10, crop.height // 5), fill=255)
+            target = Path(directory) / 'central-value.png'
+            prepared.save(target)
+            try:
+                result = subprocess.run(
+                    ['tesseract', str(target.resolve()), 'stdout', '-l', 'eng', '--psm', '8',
+                     '-c', 'tessedit_char_whitelist=0123456789.,', 'tsv'],
+                    capture_output=True, text=True, encoding='utf-8', errors='replace',
+                    timeout=remaining, check=True)
+                text = text_from_tsv(result.stdout).strip()
+                # Read the whole numeric crop. Never take a suffix of a broken
+                # number or one line from a crop with several apparent values.
+                values = candidates_from_text(text) if re.fullmatch(r'\d+(?:[.,]\d+)*', text) else []
+                readings.append((label, text, values))
+            except (subprocess.TimeoutExpired, subprocess.CalledProcessError):
+                failed = True
+    text = f'[Großer Monatswert in der Bildmitte: Ausschnitt {box}]\n' + '\n\n'.join(
+        f'[Ziffernerkennung: {label}]\n{result}' for label, result, _ in readings)
+    if not failed and len(readings) == 2 and len(readings[0][2]) == 1 and readings[0][2] == readings[1][2]:
+        return text, readings[0][2], ''
+    return text, [], 'Der große Monatswert konnte nicht übereinstimmend erkannt werden. Bitte am Foto prüfen und manuell eintragen. Kleine Spaltenwerte werden nicht übernommen.'
+
+
 def recognize(path):
     deadline = monotonic() + 25
     readings = []
@@ -96,14 +139,20 @@ def recognize(path):
             interrupted = True
 
     try:
-        read(path, 'Originalbild')
         with Image.open(path) as image:
             gray = ImageOps.grayscale(image)
         histogram = gray.histogram()
         dark_display = sum(histogram[:128]) > gray.width * gray.height / 2
+        if dark_display:
+            return recognize_display(gray, deadline)
+        # A light wall around the display can make the overall photo bright.
+        box = central_digits(gray)
+        if box is not None:
+            return recognize_display(gray, deadline, box)
+        read(path, 'Originalbild')
         # Keep the original photo for review. Only temporary OCR copies isolate
         # the bright display text from blue bars, grid lines and dark background.
-        if dark_display or not any(candidates_from_text(text, require_unit=True) for _, text in readings):
+        if not any(candidates_from_text(text, require_unit=True) for _, text in readings):
             with TemporaryDirectory(prefix='utilmanager-ocr-') as directory:
                 for cutoff in (200, 210):
                     if monotonic() >= deadline:

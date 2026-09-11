@@ -6,9 +6,10 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from PIL import Image, ImageOps
+from PIL import Image, ImageDraw, ImageEnhance, ImageFont, ImageOps
 
 from gas.ocr import candidates_from_text, normalize_image, recognize, text_from_tsv
+from gas.display import central_digits
 
 
 SAMPLE = Path(__file__).resolve().parent / 'fixtures' / 'IMG_0003.jpeg'
@@ -42,14 +43,14 @@ class OCRTest(unittest.TestCase):
         self.assertEqual(candidates_from_text('195 kWh\n94 kWh'), ['195', '94'])
         self.assertEqual(candidates_from_text('2026\n1950', require_unit=True), [])
 
-    def test_variants_preserve_conflicts_share_timeout_and_remove_temporary_files(self):
+    def test_central_variants_reject_conflicts_share_timeout_and_remove_temporary_files(self):
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / 'photo.jpg'
             Image.new('RGB', (400, 200), 'black').save(source)
             original = source.read_bytes()
             paths, timeouts = [], []
             clock = [0]
-            outputs = iter(['195 kWh', '94 kWh', '1950'])
+            outputs = iter(['195', '94'])
 
             def run(command, **kwargs):
                 paths.append(Path(command[1]))
@@ -57,16 +58,17 @@ class OCRTest(unittest.TestCase):
                 clock[0] += 8
                 return subprocess.CompletedProcess(command, 0, tsv([(next(outputs), 0, 0, 100, 50, 1)]), '')
 
-            with patch('gas.ocr.subprocess.run', side_effect=run), patch('gas.ocr.monotonic', side_effect=lambda: clock[0]):
+            with patch('gas.ocr.central_digits', return_value=(100, 50, 300, 120)), \
+                    patch('gas.ocr.subprocess.run', side_effect=run), patch('gas.ocr.monotonic', side_effect=lambda: clock[0]):
                 text, values, warning = recognize(source)
-            self.assertEqual(values, ['195', '94'])
+            self.assertEqual(values, [])
             self.assertTrue(warning)
-            self.assertIn('Schwelle 210', text)
-            self.assertEqual(timeouts, [25, 17, 9])
-            self.assertTrue(all(not path.exists() for path in paths[1:]))
+            self.assertIn('Schwelle 170', text)
+            self.assertEqual(timeouts, [25, 17])
+            self.assertTrue(all(not path.exists() for path in paths))
             self.assertEqual(source.read_bytes(), original)
 
-    def test_ocr_timeout_preserves_prior_suggestions_with_warning(self):
+    def test_central_ocr_timeout_does_not_publish_an_unverified_suggestion(self):
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / 'photo.jpg'
             Image.new('RGB', (400, 200), 'black').save(source)
@@ -77,15 +79,63 @@ class OCRTest(unittest.TestCase):
                 calls[0] += 1
                 if calls[0] == 1:
                     clock[0] = 1
-                    return subprocess.CompletedProcess(command, 0, tsv([('195 kWh', 0, 0, 100, 50, 1)]), '')
+                    return subprocess.CompletedProcess(command, 0, tsv([('195', 0, 0, 100, 50, 1)]), '')
                 clock[0] = 25
                 raise subprocess.TimeoutExpired(command, kwargs['timeout'])
 
-            with patch('gas.ocr.subprocess.run', side_effect=run), patch('gas.ocr.monotonic', side_effect=lambda: clock[0]):
+            with patch('gas.ocr.central_digits', return_value=(100, 50, 300, 120)), \
+                    patch('gas.ocr.subprocess.run', side_effect=run), patch('gas.ocr.monotonic', side_effect=lambda: clock[0]):
                 _, values, warning = recognize(source)
-            self.assertEqual(values, ['195'])
-            self.assertIn('nicht vollständig', warning)
+            self.assertEqual(values, [])
+            self.assertIn('nicht übereinstimmend', warning)
             self.assertEqual(calls[0], 2)
+
+    def test_small_current_month_without_large_digits_is_not_a_fallback(self):
+        image = Image.new('RGB', (1200, 900), '#162433')
+        ImageDraw.Draw(image).text((1000, 350), '94 kWh', font=ImageFont.load_default(size=28), fill='white')
+        self.assertIsNone(central_digits(image.convert('L')))
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'photo.jpg'
+            image.save(path)
+            with patch('gas.ocr.subprocess.run') as run:
+                _, values, warning = recognize(path)
+            self.assertEqual(values, [])
+            self.assertIn('Kleine Spaltenwerte werden nicht übernommen', warning)
+            run.assert_not_called()
+
+    def test_unreadable_central_crop_never_invokes_whole_image_ocr(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'photo.jpg'
+            Image.new('RGB', (1200, 900), 'black').save(path)
+
+            def run(command, **kwargs):
+                self.assertNotEqual(Path(command[1]), path)
+                with Image.open(command[1]) as crop:
+                    self.assertGreater(crop.width / crop.height, 2)
+                return subprocess.CompletedProcess(command, 0, tsv([]), '')
+
+            with patch('gas.ocr.central_digits', return_value=(600, 350, 850, 430)), \
+                    patch('gas.ocr.subprocess.run', side_effect=run) as mock:
+                _, values, warning = recognize(path)
+            self.assertEqual(values, [])
+            self.assertTrue(warning)
+            self.assertEqual(mock.call_count, 2)
+
+    @unittest.skipUnless(shutil.which('tesseract'), 'Tesseract erforderlich')
+    def test_selection_uses_large_central_digits_not_a_specific_number(self):
+        with tempfile.TemporaryDirectory() as directory:
+            for main in ('0', '94', '195', '3400', '195.5'):
+                with self.subTest(main=main):
+                    image = Image.new('RGB', (1200, 900), '#162433')
+                    draw = ImageDraw.Draw(image)
+                    draw.text((520, 385), main, font=ImageFont.load_default(size=80), fill='white')
+                    draw.text((1000, 350), '195', font=ImageFont.load_default(size=28), fill='white')
+                    draw.text((1000, 385), 'kWh', font=ImageFont.load_default(size=28), fill='white')
+                    path = Path(directory) / 'photo.jpg'
+                    image.save(path)
+                    text, values, warning = recognize(path)
+                    self.assertEqual(values, [main], text)
+                    self.assertEqual(warning, '')
 
     @unittest.skipUnless(SAMPLE.exists() and shutil.which('tesseract'), 'Lokales Beispielfoto und Tesseract erforderlich')
     def test_real_display_photo_and_shortcut_sized_copy(self):
@@ -97,6 +147,10 @@ class OCRTest(unittest.TestCase):
                 output = io.BytesIO()
                 image.save(output, format='JPEG')
                 payloads.append(output.getvalue())
+                for brightness in (.65, 1.25):
+                    output = io.BytesIO()
+                    ImageEnhance.Brightness(image).enhance(brightness).save(output, format='JPEG')
+                    payloads.append(output.getvalue())
             for index, payload in enumerate(payloads):
                 with self.subTest(version=index):
                     source = Path(directory) / 'photo.jpg'

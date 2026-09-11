@@ -468,6 +468,27 @@ def create_app(test_config=None):
             flash('Das Foto konnte noch nicht gelöscht werden. Die Bereinigung wird beim nächsten App-Start erneut versucht.')
         return redirect(url_for('uploads'))
 
+    @app.post('/uploads/<upload_id>/ocr')
+    @photo_operation
+    def retry_ocr(upload_id):
+        with db_context() as db:
+            row = db.execute('SELECT * FROM uploads WHERE id=?', (upload_id,)).fetchone()
+            if not row:
+                abort(404)
+            if row['status'] != 'pending':
+                abort(409, 'Dieses Foto wurde bereits bearbeitet.')
+            path = photo_dir / row['filename']
+            if not path.is_file():
+                abort(410, 'Das Foto ist nicht mehr verfügbar.')
+            text, candidates, warning = recognize(path)
+            db.execute('UPDATE uploads SET ocr_text=?,candidates=?,warning=? WHERE id=?',
+                       (text, json.dumps(candidates), warning, upload_id))
+            audit(db, 'ocr', 'upload', upload_id,
+                  before=dict(candidates=json.loads(row['candidates'])),
+                  after=dict(candidates=candidates, warning=warning))
+        flash('Texterkennung erneut ausgeführt. Bitte Messwert und Monat am Foto prüfen.')
+        return redirect(url_for('review', upload_id=upload_id))
+
     @app.get('/photos/<upload_id>')
     def photo(upload_id):
         with db_context() as db:

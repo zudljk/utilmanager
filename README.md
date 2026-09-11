@@ -203,6 +203,24 @@ Schema und Host (gegebenenfalls mit Port) davor setzen. Dort wird der Wert gepr�
 korrigiert und gebucht. Mehrere OCR-Kandidaten werden nicht automatisch addiert.
 Ein OCR-Fehler lässt die manuelle Prüfung des Fotos weiterhin zu.
 
+Die OCR liest zunächst das Originalbild. Bei dunklen Displays oder fehlendem
+kWh-Wert folgen zwei Schwarz-Weiß-Varianten, die helle Schrift isolieren.
+Eng benachbarte, gleich große Ziffern werden anhand der Tesseract-Positionen
+zusammengeführt (z. B. `1 9 5` → `195`). Verschiedene erkannte kWh-Werte bleiben
+getrennte Kandidaten; sie werden weder addiert noch automatisch einem Monat
+zugeordnet. Der Monat stammt weiterhin aus dem Upload-Feld `month` bzw. aus
+der Vormonatsvorgabe und muss am Foto geprüft werden.
+
+Unter **„Erkannter Text“** stehen die Ergebnisse der einzelnen OCR-Durchläufe.
+Die zusätzliche Bildaufbereitung verwendet nur temporäre Dateien, die direkt
+danach gelöscht werden. Das gespeicherte Foto für die Prüfung bleibt unverändert.
+Alle Tesseract-Durchläufe teilen sich ein Zeitbudget von 25 Sekunden.
+
+Für offene Fotos gibt es auf der Prüfseite **„Texterkennung erneut starten“**,
+etwa nach einem OCR-Update. Dadurch wird nur der Erkennungsvorschlag erneuert;
+Monat und Verbrauchsbuchungen ändern sich nicht. Ein identischer erneuter
+API-Upload liefert dagegen weiterhin den bestehenden Entwurf (Idempotenz).
+
 ### Fehlgeschlagene Uploads
 
 Unter **„Fotos prüfen“ → „Fehlgeschlagene Uploads“** erscheinen abgewiesene

@@ -456,6 +456,31 @@ class AppTest(unittest.TestCase):
         self.assertEqual(response.status_code, 302)
         self.assertIn('/uploads/', response.location)
 
+    @patch('gas.recognize', return_value=('', [], 'Kein Text erkannt.'))
+    def test_retry_ocr_updates_only_pending_draft_and_preserves_month_photo(self, mock_ocr):
+        self.setup_tank()
+        data = self.upload(month='2026-08').json
+        url = data['review_url'] + '/ocr'
+        photo = Path(self.temp.name) / 'photos' / (data['id'] + '.jpg')
+        original = photo.read_bytes()
+        self.assertEqual(self.client.post(url).status_code, 401)
+        self.assertEqual(self.client.post(url, headers=AUTH).status_code, 400)
+        mock_ocr.return_value = ('195 kWh', ['195'], '')
+        self.assertEqual(self.post(url).status_code, 302)
+        page = self.client.get(data['review_url'], headers=AUTH)
+        self.assertIn('value="195"', page.text)
+        self.assertIn('value="2026-08"', page.text)
+        self.assertEqual(photo.read_bytes(), original)
+        with connection(self.path) as db:
+            row = db.execute('SELECT * FROM uploads').fetchone()
+            self.assertEqual((row['status'], row['month']), ('pending', '2026-08'))
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM consumption').fetchone()[0], 0)
+        self.post(data['review_url'], dict(action='confirm', month='2026-08', kwh='195'))
+        self.assertEqual(self.post(url).status_code, 409)
+        self.assertNotIn('Texterkennung erneut starten', self.client.get(data['review_url'], headers=AUTH).text)
+        self.assertEqual(mock_ocr.call_count, 2)
+        self.assertFalse(photo.exists())
+
     @patch('gas.recognize', return_value=('3400 kWh', ['3400'], ''))
     def test_backup_and_restore_preserve_data_and_photos(self, _):
         self.import_source()

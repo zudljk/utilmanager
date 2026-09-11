@@ -7,6 +7,13 @@
     {% elif upload.status != 'pending' %}<p class="panel">Das Foto wird nach Abschluss der Prüfung gelöscht. Die Erfassungsdaten bleiben erhalten.</p>
     {% else %}<p class="warning">Das Foto ist nicht verfügbar. Bitte den Wert anhand deiner eigenen Aufnahme prüfen.</p>{% endif %}
     <details><summary>Erkannter Text</summary><pre>{{ upload.ocr_text or 'Kein Text erkannt.' }}</pre></details>
+    {% if upload.status == 'pending' and photo_available %}
+    <form method="post" action="{{ url_for('retry_ocr', upload_id=upload.id) }}" class="reject-form">
+      <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+      <button class="secondary" type="submit">Texterkennung erneut starten</button>
+      <p class="hint">Wertet das gespeicherte Foto erneut aus. Bestätige oder korrigiere den Vorschlag anschließend im Formular.</p>
+    </form>
+    {% endif %}
   </div>
   <section class="panel">
   {% if upload.status == 'pending' %}

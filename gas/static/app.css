@@ -346,6 +346,31 @@ footer {
 .guide-detail {margin:18px 0}
 .guide-detail summary {font-weight:650}
 
+.chart-panel {padding:20px 12px 8px}
+.chart-legend {display:flex;flex-wrap:wrap;gap:12px 24px;padding:0 12px;font-size:13px}
+.chart-legend span {display:inline-flex;align-items:center;gap:8px}
+.chart-legend span::before {content:"";width:24px;border-top:3px solid var(--muted)}
+.chart-legend .legend-kwh::before {border-color:var(--green)}
+.chart-legend .legend-rest::before {border-color:#386da3}
+.chart-legend .legend-projected::before {border-top-style:dashed}
+.chart-scroll {overflow-x:auto}
+.analysis-chart {display:block;width:100%;min-width:800px;font:12px system-ui,sans-serif}
+.chart-future {fill:#f2f5f8}
+.chart-period {fill:var(--muted);font-weight:600}
+.chart-grid {stroke:var(--line);stroke-width:1}
+.chart-divider {stroke:#a5b3bf;stroke-dasharray:4 5}
+.axis-kwh {fill:var(--green)}
+.axis-rest {fill:#386da3}
+.chart-month {fill:var(--muted)}
+.chart-line {fill:none;stroke-width:2.5;stroke-linejoin:round;stroke-linecap:round}
+.curve-kwh {stroke:var(--green)}
+.curve-rest {stroke:#386da3}
+.projected-line {stroke-dasharray:7 6}
+.chart-point {fill:white;stroke-width:2}
+.chart-point:hover {r:6}
+.projected-point {stroke-dasharray:2 1}
+.analysis-table-heading {margin-top:28px}
+
 @media(max-width:760px) {
 .shortcut-guide .copy-field {flex-direction:column;align-items:stretch}
 .shortcut-settings {grid-template-columns:1fr;gap:4px}

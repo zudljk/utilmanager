@@ -25,6 +25,7 @@ from .ocr import normalize_image, recognize
 from .text_readings import MAX_TEXT_LENGTH, MAX_TEXT_REQUEST, extract_text_reading
 from .photos import photo_lock
 from .mount import BasePathMiddleware, normalize_base_path
+from .analytics import monthly_analysis, chart_geometry
 
 
 def create_app(test_config=None):
@@ -229,6 +230,15 @@ def create_app(test_config=None):
             pending = db.execute("SELECT COUNT(*) FROM uploads WHERE status='pending'").fetchone()[0]
             return render_template('index.html', rows=rows, settings=settings, year=year,
                                    years=range(first_year, max_year+1), last_complete=last_complete, pending=pending)
+
+    @app.get('/analytics')
+    def analytics():
+        with db_context() as db:
+            settings = db.execute('SELECT * FROM settings WHERE id=1').fetchone()
+            if not settings:
+                return redirect(url_for('index'))
+            rows = monthly_analysis(db, today())
+        return render_template('analytics.html', rows=rows, chart=chart_geometry(rows))
 
     @app.post('/setup')
     def setup():

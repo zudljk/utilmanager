@@ -1,0 +1,56 @@
+{% extends 'base.html' %}
+{% block title %}Auswertungen{% endblock %}
+{% block content %}
+<p class="eyebrow">Flüssiggas</p>
+<h1>Verbrauch &amp; Restmenge im Verlauf</h1>
+<p class="intro">{{ rows[0].month|month_de }} bis {{ rows[-1].month|month_de }} · Zwölf abgeschlossene Monate und zwölf Monate Vorschau ab dem laufenden Monat.</p>
+<div class="panel chart-panel">
+  <div class="chart-legend" aria-label="Diagrammlegende">
+    <span class="legend-kwh">Verbrauch (kWh, links)</span>
+    <span class="legend-rest">Restmenge (Liter, rechts)</span>
+    <span class="legend-actual">Tatsächlich</span>
+    <span class="legend-projected">Projektion</span>
+  </div>
+  <div class="chart-scroll" tabindex="0" role="region" aria-label="Verlaufdiagramm, horizontal scrollbar">
+    <svg class="analysis-chart" viewBox="0 0 1100 430" role="img" aria-labelledby="chart-title chart-description">
+      <title id="chart-title">Monatlicher Verbrauch und Restmenge</title>
+      <desc id="chart-description">Zwei Kurven mit getrennten Skalen. Tatsächliche Werte sind durchgezogen, Projektionen gestrichelt. Fehlende Werte erscheinen als Lücken. Alle Monatswerte stehen in der Tabelle unter dem Diagramm.</desc>
+      <rect class="chart-future" x="{{ chart.boundary }}" y="60" width="480" height="270" />
+      <text class="chart-period" x="300" y="25" text-anchor="middle">Tatsächliche Werte</text>
+      <text class="chart-period" x="790" y="25" text-anchor="middle">Projektion</text>
+      <text class="axis-kwh" x="90" y="48">kWh</text>
+      <text class="axis-rest" x="1010" y="48" text-anchor="end">Liter</text>
+      {% for axis in chart.ticks %}{% for tick in axis['values'] %}
+      {% if axis.field == 'kwh' %}<line class="chart-grid" x1="90" x2="1010" y1="{{ tick.y }}" y2="{{ tick.y }}" />{% endif %}
+      <text class="axis-{{ axis.field }}" x="{{ 78 if axis.field == 'kwh' else 1022 }}" y="{{ tick.y + 4 }}" text-anchor="{{ 'end' if axis.field == 'kwh' else 'start' }}">{{ tick.value|num(axis.digits) }}</text>
+      {% endfor %}{% endfor %}
+      <line class="chart-divider" x1="{{ chart.boundary }}" x2="{{ chart.boundary }}" y1="40" y2="330" />
+      {% for label in chart.labels %}
+      <text class="chart-month" transform="translate({{ label.x }},350) rotate(-55)" text-anchor="end">{{ label.month|month_de }}</text>
+      {% endfor %}
+      {% for series in chart.series %}
+      {% for projected, paths in series.paths.items() %}{% for path in paths %}
+      <polyline class="chart-line curve-{{ series.field }}{% if projected %} projected-line{% endif %}" points="{{ path }}" />
+      {% endfor %}{% endfor %}
+      {% for point in series.points if point.y is not none %}
+      <circle class="chart-point curve-{{ series.field }}{% if point.projected %} projected-point{% endif %}" cx="{{ point.x }}" cy="{{ point.y }}" r="4">
+        <title>{{ point.month|month_de }} · {{ series.label }}: {{ point.value|num(2) }} {{ series.unit }}{% if point.projected %} (Projektion){% endif %}</title>
+      </circle>
+      {% endfor %}{% endfor %}
+    </svg>
+  </div>
+</div>
+<div class="table-notes">
+  <p>Der projizierte Verbrauch entspricht dem tatsächlichen Verbrauch des jeweiligen Vorjahresmonats. Die Restmenge wird vom letzten abgeschlossenen Monat aus fortgerechnet: Restmenge + erfasste Lieferungen − Verbrauch in Litern. Die Werte gelten jeweils zum Monatsende.</p>
+  <p>Weitere Lieferungen werden nicht angenommen. Negative Restmengen zeigen eine rechnerische Unterdeckung. Fehlt ein Verbrauchswert, bleibt die Kurve dort offen; ohne lückenlosen Bestand ist auch die folgende Restmenge unbekannt. Fehlende Vorjahreswerte werden nicht durch Null ersetzt.</p>
+</div>
+<h2 class="analysis-table-heading">Monatswerte</h2>
+<div class="table-scroll" role="region" aria-label="Monatswerte der Auswertung" tabindex="0">
+  <table>
+    <thead><tr><th scope="col">Monat</th><th scope="col">Werte</th><th scope="col">Verbrauch (kWh)</th><th scope="col">Restmenge (Liter)</th><th scope="col">Lieferung (Liter)</th><th scope="col">Vorjahresmonat</th></tr></thead>
+    <tbody>{% for row in rows %}
+      <tr class="{% if row.projected %}forecast{% endif %}"><th scope="row">{{ row.month|month_de }}</th><td>{{ 'Projektion' if row.projected else 'Tatsächlich' }}</td><td>{{ row.kwh|num(2) }}</td><td>{{ row.rest|num(2) }}</td><td>{{ row.delivery_liters|num(2) }}</td><td>{{ row.prior_month|month_de if row.prior_month else '–' }}</td></tr>
+    {% endfor %}</tbody>
+  </table>
+</div>
+{% endblock %}

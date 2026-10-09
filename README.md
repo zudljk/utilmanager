@@ -381,6 +381,29 @@ Wiederherstellung: App stoppen, den bisherigen Datenbestand aufbewahren,
 App mit diesem Volume starten. Keine alten `-wal`-/`-shm`-Dateien mit einem
 Snapshot mischen. Das Backup enthält auch Konfiguration und Änderungsprotokoll.
 
+## Auswertungen
+
+Die Navigation **Auswertungen** öffnet `/analytics` (bei einem konfigurierten
+Basispfad beispielsweise `/utilmanager/analytics`). Das Diagramm zeigt zwölf
+abgeschlossene Monate und zwölf Monate Vorschau einschließlich des laufenden
+Monats. Verbrauch steht auf der linken Achse in kWh, Restmenge auf der rechten
+Achse in Litern; beide beziehen sich auf den jeweiligen Monatsabschluss.
+
+Vergangene Monate verwenden ausschließlich tatsächliche Werte. Für die
+Vorschau wird der Verbrauch des entsprechenden Vorjahresmonats übernommen.
+Die Restmenge wird vom letzten abgeschlossenen Bestand aus mit diesem Verbrauch
+und bereits erfassten Lieferungen fortgerechnet. Weitere Lieferungen werden
+nicht angenommen. Durchgezogene Linien zeigen Istwerte, gestrichelte Linien
+die Projektion. Fehlende Werte erscheinen als Lücken, ausdrücklich erfasster
+Nullverbrauch bleibt ein gültiger Wert. Ohne lückenlosen Istbestand oder nach
+einem fehlenden Vorjahreswert bleibt die folgende Restmenge unbekannt.
+Negative Restmengen zeigen eine rechnerische Unterdeckung.
+
+Unter dem Diagramm stehen die genauen Monatswerte einschließlich der
+Vorjahresmonate und Lieferungen. Das SVG-Diagramm benötigt keine externen
+Dienste oder JavaScript; auf kleinen Bildschirmen lässt es sich horizontal
+scrollen.
+
 ## Lokale Entwicklung und Tests
 
 ```sh
